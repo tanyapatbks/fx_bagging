@@ -121,8 +121,8 @@ class SequenceDataHandler:
         target_idx = list(features.columns).index(target_col)
         features = features.values
         
-        # สร้าง scaler และ normalize ข้อมูล
-        scaler = StandardScaler()
+        # ใช้ StandardScaler ด้วยพารามิเตอร์เฉพาะ
+        scaler = StandardScaler(with_mean=True, with_std=True)
         scaled_features = scaler.fit_transform(features)
         
         # สร้างชุดข้อมูลแบบ tabular โดยแต่ละแถวประกอบด้วยข้อมูลย้อนหลัง sequence_length แถว

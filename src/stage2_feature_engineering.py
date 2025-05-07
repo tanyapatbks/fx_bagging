@@ -199,6 +199,21 @@ class FeatureEngineer:
         
         return enhanced_df
     
+    # เพิ่มในโค้ด feature engineering ของคุณ
+    def add_market_phase_features(df):
+        # ตรวจจับการเปลี่ยนแปลงของความผันผวน
+        df['Volatility20'] = df['High'].rolling(20).max() - df['Low'].rolling(20).min()
+        df['Volatility_Change'] = df['Volatility20'].pct_change(5)
+        
+        # การเปลี่ยนเฟสของตลาด
+        df['Phase_Change'] = 0
+        # การเพิ่มขึ้นของความผันผวนอย่างมากมักเป็นสัญญาณของการเปลี่ยนเฟส
+        df.loc[df['Volatility_Change'] > 0.5, 'Phase_Change'] = 1  
+        # การลดลงอย่างมากก็อาจเป็นสัญญาณของการเปลี่ยนเฟสเช่นกัน
+        df.loc[df['Volatility_Change'] < -0.3, 'Phase_Change'] = -1  
+        
+        return df
+
     def select_features(self, train_df: pd.DataFrame, test_df: pd.DataFrame, 
                       method: Optional[str] = None, 
                       target_col: str = 'Close') -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:

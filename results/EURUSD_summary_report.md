@@ -4,19 +4,19 @@
 
 | Model | Data Type 1 (Raw) | Data Type 2 (Enhanced) | Data Type 3 (Enhanced+Selected) |
 |-------|-------------------|------------------------|--------------------------------|
-| LSTM | 0.753867 | 0.752848 | 0.753830 | 
-| GRU | 0.753775 | 0.751887 | 0.752803 | 
-| XGBoost | 0.756358 | 0.756360 | 0.756357 | 
-| TFT | 0.753999 | 0.753078 | 0.752701 | 
+| LSTM | 0.627559 | 0.626504 | 0.625684 | 
+| GRU | 0.626802 | 0.628078 | 0.627286 | 
+| XGBoost | 0.493064 | 0.493251 | 0.493225 | 
+| TFT | 0.627231 | 0.628288 | 0.626716 | 
 
 ## 2. Directional Accuracy Comparison
 
 | Model | Data Type 1 (Raw) | Data Type 2 (Enhanced) | Data Type 3 (Enhanced+Selected) |
 |-------|-------------------|------------------------|--------------------------------|
-| LSTM | 47.82% | 48.41% | 47.42% | 
-| GRU | 47.62% | 48.21% | 48.21% | 
-| XGBoost | 46.63% | 46.43% | 46.83% | 
-| TFT | 45.83% | 49.40% | 48.21% | 
+| LSTM | 48.73% | 47.32% | 47.96% | 
+| GRU | 48.06% | 47.10% | 46.39% | 
+| XGBoost | 48.99% | 48.93% | 49.34% | 
+| TFT | 48.93% | 46.55% | 47.19% | 
 
 ## 3. Annual Return Comparison
 
@@ -24,27 +24,27 @@
 |-------|-------------------|------------------------|--------------------------------|
 | LSTM | -0.00% | -0.00% | -0.00% | 
 | GRU | -0.00% | -0.00% | -0.00% | 
-| XGBoost | -0.00% | -0.00% | -0.00% | 
-| TFT | -0.00% | -0.00% | 0.00% | 
+| XGBoost | 0.00% | 0.00% | 0.00% | 
+| TFT | -0.00% | -0.00% | -0.00% | 
 
 ## 4. Model Return vs Benchmark Comparison (Enhanced+Selected Data)
 
 | Model | Model Return | Buy & Hold | SMA Crossover | Random |
 |-------|-------------|-----------|---------------|--------|
-| LSTM | -819.38% | 1279.79% | 214.38% | 74.38% |
-| GRU | -425.21% | 1279.79% | 214.38% | 74.38% |
-| XGBoost | -15.00% | 1279.79% | 214.38% | 74.38% |
-| TFT | 35.63% | 1279.79% | 214.38% | 74.38% |
+| LSTM | -43.04% | -79.38% | -27.33% | 80.85% |
+| GRU | -84.22% | -79.38% | -27.33% | 80.85% |
+| XGBoost | 14.45% | -79.38% | -27.33% | 80.85% |
+| TFT | -84.87% | -79.38% | -27.33% | 80.85% |
 
 ## 5. Key Findings
 
-- Best model for RMSE: **TFT** (0.752701)
-- Best model for Directional Accuracy: **GRU** (48.21%)
-- Best model for Annual Return: **TFT** (0.00%)
+- Best model for RMSE: **XGBoost** (0.493225)
+- Best model for Directional Accuracy: **XGBoost** (49.34%)
+- Best model for Annual Return: **XGBoost** (0.00%)
 
 ### Improvement from Raw to Enhanced+Selected
 
-- LSTM: RMSE improvement: **0.00%**
-- GRU: RMSE improvement: **0.13%**
-- XGBoost: RMSE improvement: **0.00%**
-- TFT: RMSE improvement: **0.17%**
+- LSTM: RMSE improvement: **0.30%**
+- GRU: RMSE improvement: **-0.08%**
+- XGBoost: RMSE improvement: **-0.03%**
+- TFT: RMSE improvement: **0.08%**

@@ -208,3 +208,49 @@ class ModelEvaluator:
             'model_vs_buyhold': model_vs_buyhold,
             'model_vs_sma': model_vs_sma
         }
+    
+    def forward_walking_validation(model, X, y, window_size=500, step=100):
+        predictions = []
+        actuals = []
+        
+        for i in range(0, len(X) - window_size, step):
+            # ฝึกฝนบนหน้าต่าง
+            X_train = X[i:i+window_size]
+            y_train = y[i:i+window_size]
+            
+            # ทำนายจุดถัดไป
+            X_test = X[i+window_size:i+window_size+step]
+            y_test = y[i+window_size:i+window_size+step]
+            
+            model.fit(X_train, y_train)
+            preds = model.predict(X_test)
+            
+            predictions.extend(preds)
+            actuals.extend(y_test)
+        
+        return np.array(predictions), np.array(actuals)
+    
+    def directional_accuracy_at_key_levels(y_true, y_pred, prices, threshold=0.01):
+        # ระบุระดับสำคัญ (วิธีอย่างง่าย)
+        highs = prices.rolling(20).max()
+        lows = prices.rolling(20).min()
+        
+        # ตรวจสอบว่าราคาอยู่ใกล้ระดับสำคัญหรือไม่ (ภายในเกณฑ์)
+        near_key_level = (
+            (np.abs(prices - highs) / prices < threshold) | 
+            (np.abs(prices - lows) / prices < threshold)
+        )
+        
+        # คำนวณความแม่นยำในการทำนายทิศทางเฉพาะที่จุดเหล่านี้
+        if sum(near_key_level) > 0:
+            direction_true = np.sign(np.diff(y_true))
+            direction_pred = np.sign(np.diff(y_pred))
+            
+            # กรองสำหรับระดับสำคัญ
+            key_level_idx = near_key_level[:-1]  # ปรับสำหรับความยาว diff()
+            key_level_accuracy = np.mean(
+                direction_true[key_level_idx] == direction_pred[key_level_idx]
+            ) * 100
+            
+            return key_level_accuracy
+        return None

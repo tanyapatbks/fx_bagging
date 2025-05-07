@@ -41,51 +41,54 @@ class Config:
     VALIDATION_SPLIT = 0.2
     PATIENCE = 20  # จำนวนรอบที่ไม่มีการปรับปรุงก่อนหยุดการเทรน
     
-        # LSTM parameters - ปรับค่าเริ่มต้นให้ดีขึ้น
+    # ปรับ hyperparameters สำหรับ LSTM/GRU
     LSTM_PARAMS = {
-        'learning_rate': 0.0005,
-        'units_layer1': 128,
-        'units_layer2': 64,
-        'dropout1': 0.3,
-        'dropout2': 0.3,
+        'learning_rate': 0.0003,  # ลดลงเพื่อให้การเรียนรู้เสถียรมากขึ้น
+        'units_layer1': 192,      # เพิ่มขึ้นเพื่อจับรูปแบบที่ซับซ้อนมากขึ้น
+        'units_layer2': 96,       # เพิ่มขึ้นเพื่อประมวลผลข้อมูลที่ซับซ้อนมากขึ้น
+        'dropout1': 0.25,         # ปรับลงเล็กน้อยเพื่อให้โมเดลเรียนรู้รูปแบบได้ดีขึ้น
+        'dropout2': 0.25,
         'recurrent_dropout': 0.1,
-        'l1_reg': 0.0001,
-        'l2_reg': 0.0005
+        'l1_reg': 0.00005,        # ลดลงเพื่อให้โมเดลสามารถจับรูปแบบละเอียดได้ดีขึ้น
+        'l2_reg': 0.0002,         # ลดลงเพื่อลดการ regularize ที่อาจมากเกินไป
+        'attention_units': 64     # ใช้กับโมเดลที่มี attention
     }
 
-    # GRU parameters - ปรับค่าเริ่มต้นให้ดีขึ้น
+    # สำหรับ GRU
     GRU_PARAMS = {
-        'learning_rate': 0.0005,
-        'units_layer1': 160,
-        'units_layer2': 80,
-        'dropout1': 0.3,
-        'dropout2': 0.3,
-        'recurrent_dropout': 0.1,
-        'l1_reg': 0.0001,
-        'l2_reg': 0.0005
+        'learning_rate': 0.0003,
+        'units_layer1': 224,      # GRU อาจต้องการหน่วยมากกว่า LSTM เล็กน้อย
+        'units_layer2': 112,
+        'dropout1': 0.2,          # GRU มีประสิทธิภาพดีกับ dropout น้อยกว่า LSTM
+        'dropout2': 0.2,
+        'recurrent_dropout': 0.05,
+        'l1_reg': 0.00005,
+        'l2_reg': 0.0001,
+        'attention_units': 64
     }
-
-    # XGBoost parameters - ปรับค่าเริ่มต้นให้ดีขึ้น
+    # ปรับ hyperparameters สำหรับ XGBoost
     XGB_PARAMS = {
-        'n_estimators': 300,
-        'max_depth': 6,
-        'learning_rate': 0.005,
-        'gamma': 0.1,
-        'subsample': 0.7,
-        'colsample_bytree': 0.7,
-        'min_child_weight': 5,
-        'reg_alpha': 0.2,
-        'reg_lambda': 1.5,
-        'random_state': 42
+        'n_estimators': 500,      # เพิ่มขึ้นเพื่อให้มีต้นไม้มากขึ้น
+        'max_depth': 5,           # ลดลงเพื่อป้องกัน overfitting
+        'learning_rate': 0.003,   # ลดลงเพื่อให้การเรียนรู้เสถียรมากขึ้น
+        'gamma': 0.05,            # ลดลงเพื่อให้สร้างโหนดใหม่ได้ง่ายขึ้น
+        'subsample': 0.8,
+        'colsample_bytree': 0.8,
+        'min_child_weight': 5,    # เพิ่มขึ้นเพื่อป้องกัน overfitting
+        'reg_alpha': 0.2,         # L1 regularization
+        'reg_lambda': 1.2,        # L2 regularization
+        'random_state': 42,
+        'objective': 'reg:squarederror',
+        'tree_method': 'hist'
     }
 
-    # TFT parameters - ปรับค่าเริ่มต้นให้ดีขึ้น
+    # ปรับ hyperparameters สำหรับ TFT
     TFT_PARAMS = {
-        'learning_rate': 0.0005,
-        'attention_heads': 6,
+        'learning_rate': 0.0003,
+        'attention_heads': 8,     # เพิ่มขึ้นเพื่อจับความสัมพันธ์ที่ซับซ้อนมากขึ้น
         'dropout': 0.15,
-        'hidden_units': 96,
-        'hidden_continuous_size': 32
+        'hidden_units': 128,      # เพิ่มขึ้นเพื่อเพิ่มความสามารถในการเรียนรู้
+        'hidden_continuous_size': 48
     }
     
     # Feature Engineering parameters
@@ -140,6 +143,30 @@ class Config:
             'XGBoost': {
                 'max_depth': 5,
                 'min_child_weight': 5
+            }
+        }
+    }
+
+    # ในไฟล์ config/config.py ภายใน Config class
+    
+    # พารามิเตอร์เฉพาะสำหรับแต่ละคู่สกุลเงิน
+    PAIR_SPECIFIC_PARAMS = {
+        'EURUSD': {
+            'LSTM': {
+                'l1_reg': 0.0002,
+                'attention_units': 72
+            }
+        },
+        'GBPUSD': {
+            'LSTM': {
+                'dropout1': 0.3,
+                'learning_rate': 0.0002
+            }
+        },
+        'USDJPY': {
+            'LSTM': {
+                'units_layer1': 224,
+                'recurrent_dropout': 0.15
             }
         }
     }

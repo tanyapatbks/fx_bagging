@@ -123,8 +123,8 @@ class GRUModel:
                 ),
                 ReduceLROnPlateau(
                     monitor='val_loss',
-                    factor=0.5,
-                    patience=self.config.PATIENCE // 2,
+                    factor=0.5,  # Reduce by half
+                    patience=5,  # Check sooner
                     min_lr=1e-6,
                     verbose=1
                 )

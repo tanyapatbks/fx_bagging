@@ -33,6 +33,7 @@ from src.stage3_prediction_models import LSTMModel, GRUModel, XGBoostModel, TFTM
 from src.stage4_evaluation import ModelEvaluator
 from src.visualization import ResultVisualizer
 from src.reporting import ReportGenerator
+from src.ensemble_model import LightweightEnsemble
 from utils.data_utils import SequenceDataHandler
 
 
@@ -330,6 +331,18 @@ class ForexPredictionSystem:
                             None,  # Not used for XGBoost
                             None   # Not used for XGBoost
                         )
+
+                    elif model_type == 'LSTM':
+                        # รวมพารามิเตอร์เริ่มต้นกับพารามิเตอร์เฉพาะคู่สกุลเงิน
+                        model_params = self.config.LSTM_PARAMS.copy()
+                        
+                        # ถ้ามีพารามิเตอร์เฉพาะสำหรับคู่สกุลเงินนี้
+                        if (pair in self.config.PAIR_SPECIFIC_PARAMS and 
+                            'LSTM' in self.config.PAIR_SPECIFIC_PARAMS[pair]):
+                            model_params.update(self.config.PAIR_SPECIFIC_PARAMS[pair]['LSTM'])
+                        
+                        model_instance = LSTMModel(self.config, model_params)
+                        
                     else:
                         # For sequence models (LSTM, GRU, TFT)
                         model, history, predictions = self.train_single_model(
@@ -982,6 +995,77 @@ class ForexPredictionSystem:
         print("\n" + "="*60)
         print("Workflow completed successfully!")
         print("="*60)
+        
+        return True
+    
+    def run_ensemble_evaluation(self, model_types=None, pairs=None):
+        """
+        Create and evaluate ensemble models
+        
+        Args:
+            model_types: List of model types to include in the ensemble
+            pairs: List of currency pairs to evaluate
+        """
+        print("\n" + "="*60)
+        print("Evaluating Ensemble Models")
+        print("="*60)
+        
+        # Default is to use all models for all pairs
+        if model_types is None:
+            model_types = ['LSTM', 'GRU', 'XGBoost', 'TFT']
+        
+        if pairs is None:
+            pairs = self.config.CURRENCY_PAIRS
+        
+        # Make sure we have results to work with
+        if not hasattr(self, 'results'):
+            print("No model results available. Please run model training first.")
+            return False
+        
+        # For each pair, create an ensemble
+        for pair in pairs:
+            print(f"\nCreating ensemble for {pair}...")
+            
+            # Create ensemble
+            ensemble = LightweightEnsemble(self.config)
+            
+            # Add models to ensemble
+            symbol = self.config.PAIR_SYMBOLS[pair]
+            identifier = f"{symbol}3"  # Use Enhanced+Selected data
+            
+            if pair in self.results and identifier in self.results[pair]:
+                for model_type in model_types:
+                    if model_type in self.results[pair][identifier]:
+                        model_results = self.results[pair][identifier][model_type]
+                        
+                        # Set weight based on directional accuracy
+                        accuracy = self.evaluation_results[pair][identifier][model_type]['metrics']['directional_accuracy']
+                        weight = accuracy / 50.0  # Normalize around 1.0
+                        
+                        ensemble.add_model(f"{model_type}_{pair}", model_results['model'], weight)
+                        print(f"  Added {model_type} with weight {weight:.2f}")
+            
+            # Create test data dictionary
+            X_dict = {
+                'sequence': self.model_data[pair]['selected']['X_seq_test'],
+                'seq_scaler': self.model_data[pair]['selected']['seq_scaler'],
+                'target_idx': self.model_data[pair]['selected']['target_idx'],
+                'tabular': self.model_data[pair]['selected']['X_tab_test']
+            }
+            
+            # Get predictions
+            ensemble_predictions = ensemble.create_lightweight_ensemble(X_dict)
+            
+            # Evaluate ensemble
+            actual_values = self.model_data[pair]['selected']['y_seq_test']
+            print("\nEvaluating ensemble performance...")
+            metrics = self.evaluator.calculate_metrics(actual_values, ensemble_predictions)
+            trading_metrics = self.evaluator.calculate_trading_metrics(actual_values, ensemble_predictions)
+            
+            print("\nEnsemble performance:")
+            print(f"  RMSE: {metrics['rmse']:.6f}")
+            print(f"  Directional Accuracy: {metrics['directional_accuracy']:.2f}%")
+            print(f"  Annual Return: {trading_metrics['annual_return']:.2f}%")
         
         return True
 

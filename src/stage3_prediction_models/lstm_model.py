@@ -34,50 +34,65 @@ class LSTMModel:
     
     def build_model(self, input_shape: Tuple[int, int]) -> tf.keras.Model:
         """
-        Build and compile the LSTM model architecture
+        สร้างและคอมไพล์โมเดล LSTM พร้อมกลไก Attention
         
         Args:
-            input_shape: Shape of the input data (sequence_length, num_features)
+            input_shape: รูปร่างของข้อมูลนำเข้า (sequence_length, num_features)
             
         Returns:
-            Compiled LSTM model
+            โมเดล LSTM ที่คอมไพล์แล้ว
         """
         # อ่านพารามิเตอร์
-        units_layer1 = self.params.get('units_layer1', 100)
-        units_layer2 = self.params.get('units_layer2', 50)
+        units_layer1 = self.params.get('units_layer1', 128)
+        units_layer2 = self.params.get('units_layer2', 64)
         dropout1 = self.params.get('dropout1', 0.3)
         dropout2 = self.params.get('dropout2', 0.3)
-        recurrent_dropout = self.params.get('recurrent_dropout', 0.2)
+        recurrent_dropout = self.params.get('recurrent_dropout', 0.1)
         l1_reg = self.params.get('l1_reg', 0.0001)
-        l2_reg = self.params.get('l2_reg', 0.0001)
+        l2_reg = self.params.get('l2_reg', 0.0005)
+        attention_units = self.params.get('attention_units', 32)
         
         # สร้างโมเดล
-        model = Sequential([
-            LSTM(
-                units_layer1, 
-                return_sequences=True, 
-                input_shape=input_shape,
-                recurrent_dropout=recurrent_dropout,
-                kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg),
-                name='lstm_layer1'
-            ),
-            Dropout(dropout1, name='dropout_layer1'),
-            LSTM(
+        inputs = tf.keras.layers.Input(shape=input_shape)
+        
+        # LSTM layer 1
+        lstm1 = tf.keras.layers.LSTM(
+            units_layer1, 
+            return_sequences=True, 
+            recurrent_dropout=recurrent_dropout,
+            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=l1_reg, l2=l2_reg),
+            name='lstm_layer1'
+        )(inputs)
+        lstm1 = tf.keras.layers.Dropout(dropout1, name='dropout_layer1')(lstm1)
+        
+        # Attention mechanism
+        attention = tf.keras.layers.Dense(attention_units, activation='tanh', name='attention_dense')(lstm1)
+        attention = tf.keras.layers.Dense(1, activation='softmax', name='attention_weights')(attention)
+        context_vector = tf.keras.layers.Multiply(name='attention_multiply')([lstm1, attention])
+        context_vector = tf.keras.layers.Lambda(lambda x: tf.reduce_sum(x, axis=1), name='attention_sum')(context_vector)
+        
+        # LSTM layer 2 (optional, can use the context vector directly)
+        if units_layer2 > 0:
+            lstm2 = tf.keras.layers.LSTM(
                 units_layer2, 
                 recurrent_dropout=recurrent_dropout,
-                kernel_regularizer=l1_l2(l1=l1_reg, l2=l2_reg),
+                kernel_regularizer=tf.keras.regularizers.l1_l2(l1=l1_reg, l2=l2_reg),
                 name='lstm_layer2'
-            ),
-            Dropout(dropout2, name='dropout_layer2'),
-            Dense(1, name='output_layer')
-        ])
+            )(tf.keras.layers.Reshape((1, -1))(context_vector))
+            lstm2 = tf.keras.layers.Dropout(dropout2, name='dropout_layer2')(lstm2)
+            outputs = tf.keras.layers.Dense(1, name='output_layer')(lstm2)
+        else:
+            outputs = tf.keras.layers.Dense(1, name='output_layer')(context_vector)
+        
+        # สร้างโมเดล
+        model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
         
         # คอมไพล์โมเดล
-        optimizer = Adam(learning_rate=self.params.get('learning_rate', 0.001))
+        optimizer = tf.keras.optimizers.Adam(learning_rate=self.params.get('learning_rate', 0.0005))
         model.compile(
             optimizer=optimizer, 
             loss='mse',
-            metrics=[RootMeanSquaredError()]
+            metrics=[tf.keras.metrics.RootMeanSquaredError()]
         )
         
         # Print model summary
@@ -85,6 +100,47 @@ class LSTMModel:
         
         return model
     
+    def build_multi_horizon_attention(self, inputs, sequence_length, feature_dim):
+        # Attention ระยะสั้น (ไม่กี่ชั่วโมงที่ผ่านมา)
+        attention_short = tf.keras.layers.Dense(32, activation='tanh')(inputs[:, -6:, :])
+        attention_short = tf.keras.layers.Dense(1, activation='softmax')(attention_short)
+        context_short = tf.keras.layers.Multiply()([inputs[:, -6:, :], attention_short])
+        context_short = tf.reduce_sum(context_short, axis=1)
+        
+        # Attention ระยะกลาง (กลางลำดับ)
+        mid_start = max(0, sequence_length - 24)
+        mid_end = sequence_length - 6
+        attention_mid = tf.keras.layers.Dense(32, activation='tanh')(inputs[:, mid_start:mid_end, :])
+        attention_mid = tf.keras.layers.Dense(1, activation='softmax')(attention_mid)
+        context_mid = tf.keras.layers.Multiply()([inputs[:, mid_start:mid_end, :], attention_mid])
+        context_mid = tf.reduce_sum(context_mid, axis=1)
+        
+        # Attention ระยะยาว (ลำดับทั้งหมด)
+        attention_long = tf.keras.layers.Dense(32, activation='tanh')(inputs)
+        attention_long = tf.keras.layers.Dense(1, activation='softmax')(attention_long)
+        context_long = tf.keras.layers.Multiply()([inputs, attention_long])
+        context_long = tf.reduce_sum(context_long, axis=1)
+        
+        # รวมบริบท
+        combined_context = tf.keras.layers.Concatenate()([context_short, context_mid, context_long])
+        return combined_context
+
+    # ในการเตรียมข้อมูลของคุณ เพิ่มการจัดกลุ่มอย่างง่ายตามรูปแบบการเคลื่อนไหวของราคา
+    def create_sequence_aware_batches(X, y, batch_size=32):
+        # คำนวณลายเซ็นรูปแบบอย่างง่ายสำหรับแต่ละลำดับ (การเปลี่ยนทิศทาง)
+        signatures = []
+        for seq in X:
+            # นับการเปลี่ยนทิศทางในราคาปิด
+            close_idx = target_idx  # สมมติว่านี่คือดัชนีของราคาปิด
+            closes = seq[:, close_idx]
+            directions = np.sign(np.diff(closes))
+            direction_changes = np.sum(np.abs(np.diff(directions)))
+            signatures.append(direction_changes)
+        
+        # เรียงตามลายเซ็น
+        sort_idx = np.argsort(signatures)
+        return X[sort_idx], y[sort_idx]
+
     def train(self, X_train: np.ndarray, y_train: np.ndarray, model_name: str, 
           callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
           epochs: Optional[int] = None,
@@ -123,8 +179,8 @@ class LSTMModel:
                 ),
                 ReduceLROnPlateau(
                     monitor='val_loss',
-                    factor=0.5,
-                    patience=self.config.PATIENCE // 2,
+                    factor=0.5,  # Reduce by half
+                    patience=5,  # Check sooner
                     min_lr=1e-6,
                     verbose=1
                 )
