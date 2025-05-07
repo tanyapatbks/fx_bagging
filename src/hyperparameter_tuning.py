@@ -173,8 +173,12 @@ class HyperparameterTuner:
             # Handle different model types for training and evaluation
             if self.model_type == 'XGBoost':
                 # For XGBoost, we handle differently since it's not a neural network
-                model = model_instance.train(self.X_train, self.y_train, 
-                                          eval_set=[(self.X_val, self.y_val)])
+                model = model_instance.train(
+                    self.X_train, self.y_train, 
+                    eval_set=[(self.X_val, self.y_val)],
+                    early_stopping_rounds=self.config.PATIENCE // 2,
+                    custom_params=params
+                )
                 
                 if model is None:
                     return float('inf')  # Return a large value if model training fails
@@ -251,7 +255,8 @@ class HyperparameterTuner:
                     self.X_train, self.y_train, 
                     f"{self.pair}_{self.model_type}_trial_{trial.number}",
                     callbacks=callbacks,
-                    epochs=50  # Reduced epochs for faster tuning
+                    epochs=50,  # Reduced epochs for faster tuning
+                    validation_data=(self.X_val, self.y_val)
                 )
                 
                 # Get validation loss from history
@@ -442,3 +447,158 @@ class HyperparameterTuner:
             plt.close()
         except Exception as e:
             print(f"Could not plot parameter effects: {e}")
+
+class TuningProgress:
+    """
+    Class for tracking tuning progress and storing intermediate results
+    """
+    
+    def __init__(self, save_path):
+        """
+        Initialize the TuningProgress
+        
+        Args:
+            save_path: Path to save progress data
+        """
+        self.save_path = save_path
+        self.best_params = {}
+        self.best_scores = {}
+        self.improvement_history = {}
+        
+        # Create save path if it doesn't exist
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+    
+    def update(self, model_type, pair, data_type, trial_number, params, score, metrics):
+        """
+        Update progress with new trial results
+        
+        Args:
+            model_type: Type of model
+            pair: Currency pair
+            data_type: Type of data
+            trial_number: Current trial number
+            params: Parameters used
+            score: Objective score
+            metrics: Additional metrics
+        """
+        # Create key for this model and data type
+        key = f"{model_type}_{pair}_{data_type}"
+        
+        # Initialize if not exists
+        if key not in self.best_scores:
+            self.best_scores[key] = float('inf')
+            self.best_params[key] = None
+            self.improvement_history[key] = []
+        
+        # Check if this is a new best
+        is_improvement = score < self.best_scores[key]
+        
+        # Update if improvement
+        if is_improvement:
+            prev_best = self.best_scores[key]
+            self.best_scores[key] = score
+            self.best_params[key] = params
+            
+            # Calculate improvement percentage
+            if prev_best != float('inf'):
+                improvement_pct = (prev_best - score) / prev_best * 100
+            else:
+                improvement_pct = 0
+            
+            # Add to history
+            self.improvement_history[key].append({
+                'trial': trial_number,
+                'score': score,
+                'improvement_pct': improvement_pct,
+                'metrics': metrics
+            })
+            
+            # Save to file
+            self.save()
+            
+            return True, improvement_pct
+        
+        return False, 0
+    
+    def save(self):
+        """
+        Save progress to file
+        """
+        progress_data = {
+            'best_params': self.best_params,
+            'best_scores': self.best_scores,
+            'improvement_history': self.improvement_history,
+            'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        # Save to file
+        with open(os.path.join(self.save_path, "tuning_progress.json"), 'w') as f:
+            json.dump(progress_data, f, indent=4)
+    
+    def load(self):
+        """
+        Load progress from file
+        
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        progress_file = os.path.join(self.save_path, "tuning_progress.json")
+        
+        if os.path.exists(progress_file):
+            try:
+                with open(progress_file, 'r') as f:
+                    progress_data = json.load(f)
+                
+                self.best_params = progress_data.get('best_params', {})
+                self.best_scores = progress_data.get('best_scores', {})
+                self.improvement_history = progress_data.get('improvement_history', {})
+                
+                return True
+            except Exception as e:
+                print(f"Error loading progress: {e}")
+                return False
+        
+        return False
+    
+    def get_summary(self):
+        """
+        Get summary of tuning progress
+        
+        Returns:
+            Dictionary with summary information
+        """
+        summary = {}
+        
+        for key, history in self.improvement_history.items():
+            model_type, pair, data_type = key.split('_')
+            
+            if model_type not in summary:
+                summary[model_type] = {}
+            
+            if pair not in summary[model_type]:
+                summary[model_type][pair] = {}
+            
+            # Calculate improvements
+            if history:
+                initial_score = history[0]['score']
+                final_score = history[-1]['score']
+                total_improvement = (initial_score - final_score) / initial_score * 100
+                
+                # Calculate directional accuracy improvement
+                if all('metrics' in h and 'directional_accuracy' in h['metrics'] for h in history):
+                    initial_da = history[0]['metrics']['directional_accuracy']
+                    final_da = history[-1]['metrics']['directional_accuracy']
+                    da_improvement = final_da - initial_da
+                else:
+                    da_improvement = None
+                
+                summary[model_type][pair][data_type] = {
+                    'total_trials': len(history),
+                    'total_improvement': total_improvement,
+                    'directional_accuracy_improvement': da_improvement,
+                    'final_score': final_score,
+                    'final_directional_accuracy': history[-1]['metrics'].get('directional_accuracy', None)
+                }
+        
+        return summary

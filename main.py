@@ -692,6 +692,143 @@ class ForexPredictionSystem:
         self.evaluation_results = evaluation_results
         return True
     
+    def run_tuned_model_evaluation(self, model_types=None, pairs=None, data_types=None):
+        """
+        Train and evaluate models with hyperparameters from tuning
+        
+        Args:
+            model_types: List of model types to evaluate (default: all)
+            pairs: List of currency pairs to process (default: all)
+            data_types: List of data types to use (default: 'selected')
+        """
+        print("\n" + "="*60)
+        print("Evaluating Tuned Models")
+        print("="*60)
+        
+        # Default is to evaluate all models for all pairs
+        if model_types is None:
+            model_types = ['LSTM', 'GRU', 'XGBoost', 'TFT']
+        
+        if pairs is None:
+            pairs = self.config.CURRENCY_PAIRS
+        
+        if data_types is None:
+            data_types = ['selected']
+        
+        # Load best hyperparameters
+        best_params_file = os.path.join(self.config.HYPERPARAMS_PATH, "best_params_all.json")
+        if not os.path.exists(best_params_file):
+            print(f"Best parameters file not found: {best_params_file}")
+            print("Please run hyperparameter tuning first.")
+            return False
+        
+        with open(best_params_file, 'r') as f:
+            best_params_all = json.load(f)
+        
+        # Need to have prepared model data
+        if not hasattr(self, 'model_data') or not self.model_data:
+            print("Model data not prepared. Running data preparation steps...")
+            self.run_data_acquisition()
+            self.run_feature_engineering()
+            self.prepare_model_data()
+        
+        # Results storage
+        results = {}
+        
+        # For each pair, model type, and data type, train and evaluate
+        for pair in pairs:
+            if pair not in results:
+                results[pair] = {}
+            
+            for data_type in data_types:
+                if data_type not in results[pair]:
+                    results[pair][data_type] = {}
+                
+                if pair not in self.model_data or data_type not in self.model_data[pair]:
+                    print(f"Data not available for {pair} {data_type}. Skipping.")
+                    continue
+                
+                data = self.model_data[pair][data_type]
+                
+                # For each model type
+                for model_type in model_types:
+                    print(f"\nTraining {model_type} model for {pair} using {data_type} data with tuned hyperparameters...")
+                    
+                    # Get best parameters for this model and pair
+                    if pair in best_params_all and model_type in best_params_all[pair] and data_type in best_params_all[pair][model_type]:
+                        best_params = best_params_all[pair][model_type][data_type]
+                        print(f"Using best parameters: {best_params}")
+                    else:
+                        print(f"No tuned parameters found for {model_type} on {pair} using {data_type} data. Using default parameters.")
+                        best_params = None
+                    
+                    # Train model with best parameters
+                    if model_type == 'LSTM':
+                        model_instance = LSTMModel(self.config, best_params)
+                        model, history = model_instance.train(
+                            data['X_seq_train'], data['y_seq_train'], 
+                            f"{pair}_{data_type}_{model_type}_tuned"
+                        )
+                        predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
+                    
+                    elif model_type == 'GRU':
+                        model_instance = GRUModel(self.config, best_params)
+                        model, history = model_instance.train(
+                            data['X_seq_train'], data['y_seq_train'], 
+                            f"{pair}_{data_type}_{model_type}_tuned"
+                        )
+                        predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
+                    
+                    elif model_type == 'XGBoost':
+                        model_instance = XGBoostModel(self.config, best_params)
+                        # Split data for validation
+                        X_train, X_val, y_train, y_val = train_test_split(
+                            data['X_tab_train'], data['y_tab_train'], 
+                            test_size=0.2, shuffle=False
+                        )
+                        model = model_instance.train(
+                            X_train, y_train,
+                            eval_set=[(X_val, y_val)]
+                        )
+                        predictions = model_instance.predict(model, data['X_tab_test'])
+                        history = None
+                    
+                    elif model_type == 'TFT':
+                        model_instance = TFTModel(self.config, best_params)
+                        model, history = model_instance.train(
+                            data['X_seq_train'], data['y_seq_train'], 
+                            f"{pair}_{data_type}_{model_type}_tuned"
+                        )
+                        predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
+                    
+                    # Store results
+                    actual_values = data['y_seq_test'] if model_type != 'XGBoost' else data['y_tab_test']
+                    actual_dates = self.processed_data[pair][data_type]['test']['Time'].values[self.config.SEQUENCE_LENGTH:]
+                    
+                    results[pair][data_type][model_type] = {
+                        'model': model,
+                        'history': history,
+                        'predictions': predictions,
+                        'actual': actual_values,
+                        'dates': actual_dates
+                    }
+                    
+                    # Compare with untuned model
+                    print("\nEvaluating tuned model performance...")
+                    metrics = self.evaluator.calculate_metrics(actual_values, predictions)
+                    trading_metrics = self.evaluator.calculate_trading_metrics(actual_values, predictions)
+                    benchmark = self.evaluator.compare_with_benchmarks(actual_values, predictions)
+                    
+                    print("\nTuned model performance:")
+                    print(f"  RMSE: {metrics['rmse']:.6f}")
+                    print(f"  Directional Accuracy: {metrics['directional_accuracy']:.2f}%")
+                    print(f"  Annual Return: {trading_metrics['annual_return']:.2f}%")
+        
+        # Store results for further analysis
+        self.tuned_results = results
+        
+        return True
+
     def run_visualization(self):
         """
         Create visualizations from results

@@ -37,7 +37,9 @@ class XGBoostModel:
             print("XGBoost is not available. Functionality will be limited.")
     
     def train(self, X_train: np.ndarray, y_train: np.ndarray, 
-              eval_set: Optional[List[Tuple[np.ndarray, np.ndarray]]] = None) -> Optional[xgb.XGBRegressor]:
+          eval_set: Optional[List[Tuple[np.ndarray, np.ndarray]]] = None,
+          early_stopping_rounds: Optional[int] = None,
+          custom_params: Optional[Dict[str, Any]] = None) -> Optional[xgb.XGBRegressor]:
         """
         Train the XGBoost model
         
@@ -45,6 +47,8 @@ class XGBoostModel:
             X_train: Training features
             y_train: Training target values
             eval_set: Optional evaluation sets for early stopping
+            early_stopping_rounds: Optional number of rounds with no improvement for early stopping
+            custom_params: Optional dictionary of custom parameters to override default
             
         Returns:
             Trained XGBoost model or None if XGBoost is not available
@@ -53,39 +57,56 @@ class XGBoostModel:
             print("XGBoost is not available. Skipping XGBoost model training.")
             return None
             
+        # Merge default parameters with custom parameters if provided
+        params = self.params.copy()
+        if custom_params is not None:
+            params.update(custom_params)
+                
         # สร้างโมเดล
         model = xgb.XGBRegressor(
-            n_estimators=self.params.get('n_estimators', 500),
-            max_depth=self.params.get('max_depth', 8),
-            learning_rate=self.params.get('learning_rate', 0.01),
-            gamma=self.params.get('gamma', 0.1),
-            subsample=self.params.get('subsample', 0.8),
-            colsample_bytree=self.params.get('colsample_bytree', 0.8),
-            min_child_weight=self.params.get('min_child_weight', 3),
-            reg_alpha=self.params.get('reg_alpha', 0.1),
-            reg_lambda=self.params.get('reg_lambda', 1),
-            random_state=self.params.get('random_state', 42),
+            n_estimators=params.get('n_estimators', 500),
+            max_depth=params.get('max_depth', 8),
+            learning_rate=params.get('learning_rate', 0.01),
+            gamma=params.get('gamma', 0.1),
+            subsample=params.get('subsample', 0.8),
+            colsample_bytree=params.get('colsample_bytree', 0.8),
+            min_child_weight=params.get('min_child_weight', 3),
+            reg_alpha=params.get('reg_alpha', 0.1),
+            reg_lambda=params.get('reg_lambda', 1),
+            random_state=params.get('random_state', 42),
             tree_method='hist',  # ใช้ histogram-based algorithm ซึ่งเร็วกว่า
             n_jobs=-1  # Use all available cores
         )
         
         # Print information
         print(f"Training XGBoost model with {len(X_train)} samples, {X_train.shape[1]} features")
-        print(f"Parameters: n_estimators={self.params.get('n_estimators')}, max_depth={self.params.get('max_depth')}, learning_rate={self.params.get('learning_rate')}")
+        print(f"Parameters: n_estimators={params.get('n_estimators')}, max_depth={params.get('max_depth')}, learning_rate={params.get('learning_rate')}")
+        
+        # If early_stopping_rounds is not provided, use config patience
+        if early_stopping_rounds is None and eval_set is not None:
+            early_stopping_rounds = self.config.PATIENCE
         
         # เทรนโมเดล
+        fit_kwargs = {
+            'X': X_train, 
+            'y': y_train,
+            'verbose': True
+        }
+        
+        # Add eval_set and early_stopping_rounds if provided
         if eval_set is not None:
-            print(f"Using early stopping with patience {self.config.PATIENCE}")
-            model.fit(
-                X_train, y_train,
-                eval_set=eval_set,
-                early_stopping_rounds=self.config.PATIENCE,
-                verbose=True,
-                eval_metric='rmse'
-            )
+            fit_kwargs['eval_set'] = eval_set
+            fit_kwargs['eval_metric'] = 'rmse'
+            
+            if early_stopping_rounds is not None:
+                fit_kwargs['early_stopping_rounds'] = early_stopping_rounds
+                print(f"Using early stopping with patience {early_stopping_rounds}")
+        
+        model.fit(**fit_kwargs)
+        
+        # Print best iteration if early stopping was used
+        if eval_set is not None and hasattr(model, 'best_iteration'):
             print(f"Best iteration: {model.best_iteration}")
-        else:
-            model.fit(X_train, y_train)
         
         return model
     

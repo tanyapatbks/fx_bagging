@@ -86,7 +86,9 @@ class LSTMModel:
         return model
     
     def train(self, X_train: np.ndarray, y_train: np.ndarray, model_name: str, 
-              callbacks: Optional[List[tf.keras.callbacks.Callback]] = None) -> Tuple[tf.keras.Model, tf.keras.callbacks.History]:
+          callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
+          epochs: Optional[int] = None,
+          validation_data: Optional[Tuple[np.ndarray, np.ndarray]] = None) -> Tuple[tf.keras.Model, tf.keras.callbacks.History]:
         """
         Train the LSTM model
         
@@ -95,7 +97,9 @@ class LSTMModel:
             y_train: Training target values
             model_name: Name for saving the model
             callbacks: Optional list of Keras callbacks
-            
+            epochs: Optional number of epochs (default: use config.EPOCHS)
+            validation_data: Optional tuple of (X_val, y_val) for validation
+                
         Returns:
             Tuple of (trained_model, training_history)
         """
@@ -126,15 +130,28 @@ class LSTMModel:
                 )
             ]
         
+        # กำหนดจำนวน epochs
+        if epochs is None:
+            epochs = self.config.EPOCHS
+        
+        # เตรียม kwargs สำหรับ model.fit
+        fit_kwargs = {
+            'x': X_train,
+            'y': y_train,
+            'epochs': epochs,
+            'batch_size': self.config.BATCH_SIZE,
+            'callbacks': callbacks,
+            'verbose': 1
+        }
+        
+        # ใช้ validation_data ถ้ามี หรือใช้ validation_split จาก config
+        if validation_data is not None:
+            fit_kwargs['validation_data'] = validation_data
+        else:
+            fit_kwargs['validation_split'] = self.config.VALIDATION_SPLIT
+        
         # เทรนโมเดล
-        history = model.fit(
-            X_train, y_train,
-            epochs=self.config.EPOCHS,
-            batch_size=self.config.BATCH_SIZE,
-            validation_split=self.config.VALIDATION_SPLIT,
-            callbacks=callbacks,
-            verbose=1
-        )
+        history = model.fit(**fit_kwargs)
         
         return model, history
     

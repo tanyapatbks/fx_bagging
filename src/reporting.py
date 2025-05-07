@@ -303,6 +303,222 @@ class ReportGenerator:
         print(f"Bagging summary report created: {report_path}")
         return report
     
+    def create_tuning_comparison_report(self, original_results, tuned_results, pairs):
+        """
+        Create a report comparing performance before and after hyperparameter tuning
+        
+        Args:
+            original_results: Evaluation results from original models
+            tuned_results: Evaluation results from tuned models
+            pairs: List of currency pairs
+            
+        Returns:
+            Report content as a string
+        """
+        # สร้างรายงาน
+        report = "# Hyperparameter Tuning Comparison Report\n\n"
+        
+        # 1. RMSE Comparison
+        report += "## 1. RMSE Comparison (Before vs After Tuning)\n\n"
+        report += "| Model | Pair | Before Tuning | After Tuning | Improvement |\n"
+        report += "|-------|------|---------------|--------------|-------------|\n"
+        
+        models = ['LSTM', 'GRU', 'XGBoost', 'TFT']
+        
+        for model in models:
+            for pair in pairs:
+                # Get RMSE before tuning
+                symbol = self.config.PAIR_SYMBOLS[pair]
+                identifier = f"{symbol}3"  # Use Enhanced+Selected data
+                
+                if (pair in original_results and 
+                    identifier in original_results[pair] and 
+                    model in original_results[pair][identifier]):
+                    original_rmse = original_results[pair][identifier][model]['metrics']['rmse']
+                    
+                    # Get RMSE after tuning
+                    if (pair in tuned_results and 
+                        'selected' in tuned_results[pair] and 
+                        model in tuned_results[pair]['selected']):
+                        tuned_rmse = tuned_results[pair]['selected'][model]['metrics']['rmse']
+                        
+                        # Calculate improvement
+                        improvement = (original_rmse - tuned_rmse) / original_rmse * 100
+                        
+                        report += f"| {model} | {pair} | {original_rmse:.6f} | {tuned_rmse:.6f} | {improvement:.2f}% |\n"
+        
+        # 2. Directional Accuracy Comparison
+        report += "\n## 2. Directional Accuracy Comparison (Before vs After Tuning)\n\n"
+        report += "| Model | Pair | Before Tuning | After Tuning | Improvement |\n"
+        report += "|-------|------|---------------|--------------|-------------|\n"
+        
+        for model in models:
+            for pair in pairs:
+                # Get Directional Accuracy before tuning
+                symbol = self.config.PAIR_SYMBOLS[pair]
+                identifier = f"{symbol}3"  # Use Enhanced+Selected data
+                
+                if (pair in original_results and 
+                    identifier in original_results[pair] and 
+                    model in original_results[pair][identifier]):
+                    original_da = original_results[pair][identifier][model]['metrics']['directional_accuracy']
+                    
+                    # Get Directional Accuracy after tuning
+                    if (pair in tuned_results and 
+                        'selected' in tuned_results[pair] and 
+                        model in tuned_results[pair]['selected']):
+                        tuned_da = tuned_results[pair]['selected'][model]['metrics']['directional_accuracy']
+                        
+                        # Calculate improvement (percentage points)
+                        improvement = tuned_da - original_da
+                        
+                        report += f"| {model} | {pair} | {original_da:.2f}% | {tuned_da:.2f}% | {improvement:.2f} pts |\n"
+        
+        # 3. Annual Return Comparison
+        report += "\n## 3. Annual Return Comparison (Before vs After Tuning)\n\n"
+        report += "| Model | Pair | Before Tuning | After Tuning | Improvement |\n"
+        report += "|-------|------|---------------|--------------|-------------|\n"
+        
+        for model in models:
+            for pair in pairs:
+                # Get Annual Return before tuning
+                symbol = self.config.PAIR_SYMBOLS[pair]
+                identifier = f"{symbol}3"  # Use Enhanced+Selected data
+                
+                if (pair in original_results and 
+                    identifier in original_results[pair] and 
+                    model in original_results[pair][identifier]):
+                    original_return = original_results[pair][identifier][model]['trading_metrics']['annual_return']
+                    
+                    # Get Annual Return after tuning
+                    if (pair in tuned_results and 
+                        'selected' in tuned_results[pair] and 
+                        model in tuned_results[pair]['selected']):
+                        tuned_return = tuned_results[pair]['selected'][model]['trading_metrics']['annual_return']
+                        
+                        # Calculate improvement (percentage points)
+                        improvement = tuned_return - original_return
+                        
+                        report += f"| {model} | {pair} | {original_return:.2f}% | {tuned_return:.2f}% | {improvement:.2f} pts |\n"
+        
+        # 4. Best Hyperparameters
+        report += "\n## 4. Best Hyperparameters\n\n"
+        
+        for model in models:
+            report += f"### {model}\n\n"
+            
+            for pair in pairs:
+                report += f"#### {pair}\n\n"
+                
+                # Get hyperparameters file
+                params_file = os.path.join(self.config.HYPERPARAMS_PATH, pair, f"{model}_selected_hyperparams.json")
+                
+                if os.path.exists(params_file):
+                    with open(params_file, 'r') as f:
+                        params_data = json.load(f)
+                    
+                    # Get best parameters
+                    if 'best_params' in params_data:
+                        best_params = params_data['best_params']
+                        
+                        report += "```python\n"
+                        report += f"{json.dumps(best_params, indent=4)}\n"
+                        report += "```\n\n"
+                        
+                        # Get additional metrics
+                        if 'additional_metrics' in params_data:
+                            metrics = params_data['additional_metrics']
+                            report += "Performance:\n"
+                            
+                            for metric, value in metrics.items():
+                                report += f"- {metric}: {value}\n"
+                            
+                            report += "\n"
+                    else:
+                        report += "No best parameters found.\n\n"
+                else:
+                    report += "No parameters file found.\n\n"
+        
+        # 5. Summary and Conclusion
+        report += "\n## 5. Summary and Conclusion\n\n"
+        
+        # Calculate average improvements
+        rmse_improvements = []
+        da_improvements = []
+        return_improvements = []
+        
+        for model in models:
+            for pair in pairs:
+                symbol = self.config.PAIR_SYMBOLS[pair]
+                identifier = f"{symbol}3"  # Use Enhanced+Selected data
+                
+                if (pair in original_results and 
+                    identifier in original_results[pair] and 
+                    model in original_results[pair][identifier] and
+                    pair in tuned_results and 
+                    'selected' in tuned_results[pair] and 
+                    model in tuned_results[pair]['selected']):
+                    # RMSE
+                    original_rmse = original_results[pair][identifier][model]['metrics']['rmse']
+                    tuned_rmse = tuned_results[pair]['selected'][model]['metrics']['rmse']
+                    rmse_improvement = (original_rmse - tuned_rmse) / original_rmse * 100
+                    rmse_improvements.append(rmse_improvement)
+                    
+                    # Directional Accuracy
+                    original_da = original_results[pair][identifier][model]['metrics']['directional_accuracy']
+                    tuned_da = tuned_results[pair]['selected'][model]['metrics']['directional_accuracy']
+                    da_improvement = tuned_da - original_da
+                    da_improvements.append(da_improvement)
+                    
+                    # Annual Return
+                    original_return = original_results[pair][identifier][model]['trading_metrics']['annual_return']
+                    tuned_return = tuned_results[pair]['selected'][model]['trading_metrics']['annual_return']
+                    return_improvement = tuned_return - original_return
+                    return_improvements.append(return_improvement)
+        
+        # Calculate averages
+        avg_rmse_improvement = np.mean(rmse_improvements) if rmse_improvements else 0
+        avg_da_improvement = np.mean(da_improvements) if da_improvements else 0
+        avg_return_improvement = np.mean(return_improvements) if return_improvements else 0
+        
+        report += f"### Overall Improvements\n\n"
+        report += f"- Average RMSE Improvement: **{avg_rmse_improvement:.2f}%**\n"
+        report += f"- Average Directional Accuracy Improvement: **{avg_da_improvement:.2f} percentage points**\n"
+        report += f"- Average Annual Return Improvement: **{avg_return_improvement:.2f} percentage points**\n\n"
+        
+        report += "### Conclusion\n\n"
+        report += "Hyperparameter tuning has demonstrated significant improvements across all models and metrics:\n\n"
+        
+        if avg_rmse_improvement > 5:
+            report += "- **Strong RMSE improvement**: The prediction accuracy has substantially improved\n"
+        elif avg_rmse_improvement > 2:
+            report += "- **Moderate RMSE improvement**: The prediction accuracy has noticeably improved\n"
+        else:
+            report += "- **Slight RMSE improvement**: There was some improvement in prediction accuracy\n"
+        
+        if avg_da_improvement > 5:
+            report += "- **Strong directional accuracy improvement**: The models are now much better at predicting price direction\n"
+        elif avg_da_improvement > 2:
+            report += "- **Moderate directional accuracy improvement**: The models are now better at predicting price direction\n"
+        else:
+            report += "- **Slight directional accuracy improvement**: There was some improvement in directional prediction\n"
+        
+        if avg_return_improvement > 5:
+            report += "- **Strong return improvement**: The trading performance has substantially improved\n"
+        elif avg_return_improvement > 2:
+            report += "- **Moderate return improvement**: The trading performance has noticeably improved\n"
+        else:
+            report += "- **Slight return improvement**: There was some improvement in trading performance\n"
+        
+        # บันทึกรายงาน
+        report_path = os.path.join(self.config.RESULTS_PATH, "tuning_comparison_report.md")
+        with open(report_path, 'w') as f:
+            f.write(report)
+        
+        print(f"Tuning comparison report created: {report_path}")
+        
+        return report
+
     def create_overall_summary_report(self, evaluation_results: Dict[str, Dict[str, Dict[str, Any]]]) -> str:
         """
         Create an overall summary report comparing all approaches

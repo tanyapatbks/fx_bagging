@@ -101,6 +101,56 @@ class Config:
         'momentum': [10],
         'roc': [10]
     }
+
+    MARKET_SPECIFIC_PARAMS = {
+        'EURUSD': {
+            'LSTM': {
+                'learning_rate': 0.0003,
+                'units_layer1': 160,
+                'units_layer2': 80,
+                'dropout1': 0.3,
+                'dropout2': 0.2
+            },
+            'XGBoost': {
+                'max_depth': 6,
+                'min_child_weight': 4
+            }
+        },
+        'GBPUSD': {
+            'LSTM': {
+                'learning_rate': 0.0005,
+                'units_layer1': 192,
+                'units_layer2': 64,
+                'dropout1': 0.25,
+                'dropout2': 0.25
+            },
+            'XGBoost': {
+                'max_depth': 7,
+                'min_child_weight': 3
+            }
+        },
+        'USDJPY': {
+            'LSTM': {
+                'learning_rate': 0.0004,
+                'units_layer1': 128,
+                'units_layer2': 64,
+                'dropout1': 0.35,
+                'dropout2': 0.2
+            },
+            'XGBoost': {
+                'max_depth': 5,
+                'min_child_weight': 5
+            }
+        }
+    }
+
+    # Tuning specific configuration
+    TUNING_CONFIG = {
+        'min_trials': 30,           # Minimum number of trials per model
+        'recommended_trials': 50,   # Recommended number of trials for better results
+        'max_timeout': 14400,       # Maximum timeout in seconds (4 hours)
+        'tune_objective': 'combined' # 'rmse', 'directional_accuracy', or 'combined'
+    }
     
     # Feature Selection
     FEATURE_SELECTION_METHOD = 'random_forest'
