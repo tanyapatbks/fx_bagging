@@ -66,29 +66,44 @@ class SequenceDataHandler:
         if sequence_length is None:
             sequence_length = self.config.SEQUENCE_LENGTH
         
+        # ตรวจสอบว่า DataFrame มีข้อมูลเพียงพอ
+        if len(df) <= sequence_length:
+            raise ValueError(f"DataFrame contains only {len(df)} rows, which is not enough for the sequence length of {sequence_length}")
+            
         # แยกข้อมูลที่ไม่ใช่ตัวเลข (Time)
         features = df.drop('Time', axis=1)
-        feature_cols = features.columns
+        feature_cols = features.columns.tolist()
         
+        # ตรวจสอบว่า target_col อยู่ใน feature_cols
+        if target_col not in feature_cols:
+            raise ValueError(f"Target column '{target_col}' not found in features: {feature_cols}")
+            
         # หาตำแหน่งของคอลัมน์เป้าหมายในชุดข้อมูล
-        target_idx = list(features.columns).index(target_col)
-        features = features.values
+        target_idx = feature_cols.index(target_col)
+        features_array = features.values
         
         # สร้าง scaler และ normalize ข้อมูล
         scaler = MinMaxScaler()
-        scaled_features = scaler.fit_transform(features)
+        scaled_features = scaler.fit_transform(features_array)
         
         # สร้างชุดข้อมูลในรูปแบบของ sequences
         X, y = [], []
         for i in range(len(scaled_features) - sequence_length):
+            # ตรวจสอบข้อมูลที่มีค่า NaN หรือ Infinity
+            if np.isnan(scaled_features[i:i+sequence_length]).any() or np.isinf(scaled_features[i:i+sequence_length]).any():
+                continue
+                
             X.append(scaled_features[i:i+sequence_length])
             # ค่า y คือค่า Close ถัดไป
             if scale_target:
                 y.append(scaled_features[i+sequence_length, target_idx])
             else:
                 # ถ้าไม่ต้องการ scale ค่าเป้าหมาย
-                y.append(features[i+sequence_length, target_idx])
+                y.append(features_array[i+sequence_length, target_idx])
         
+        if not X:
+            raise ValueError("No valid sequences could be created. Check for NaN or Infinity values in the data.")
+            
         X_array = np.array(X)
         y_array = np.array(y)
         
@@ -113,27 +128,42 @@ class SequenceDataHandler:
         if sequence_length is None:
             sequence_length = self.config.SEQUENCE_LENGTH
         
+        # ตรวจสอบว่า DataFrame มีข้อมูลเพียงพอ
+        if len(df) <= sequence_length:
+            raise ValueError(f"DataFrame contains only {len(df)} rows, which is not enough for the sequence length of {sequence_length}")
+            
         # แยกข้อมูลที่ไม่ใช่ตัวเลข (Time)
         features = df.drop('Time', axis=1)
-        feature_cols = features.columns
+        feature_cols = features.columns.tolist()
         
+        # ตรวจสอบว่า target_col อยู่ใน feature_cols
+        if target_col not in feature_cols:
+            raise ValueError(f"Target column '{target_col}' not found in features: {feature_cols}")
+            
         # หาตำแหน่งของคอลัมน์เป้าหมายในชุดข้อมูล
-        target_idx = list(features.columns).index(target_col)
-        features = features.values
+        target_idx = feature_cols.index(target_col)
+        features_array = features.values
         
         # ใช้ StandardScaler ด้วยพารามิเตอร์เฉพาะ
         scaler = StandardScaler(with_mean=True, with_std=True)
-        scaled_features = scaler.fit_transform(features)
+        scaled_features = scaler.fit_transform(features_array)
         
         # สร้างชุดข้อมูลแบบ tabular โดยแต่ละแถวประกอบด้วยข้อมูลย้อนหลัง sequence_length แถว
         X, y = [], []
         for i in range(len(scaled_features) - sequence_length):
+            # ตรวจสอบข้อมูลที่มีค่า NaN หรือ Infinity
+            if np.isnan(scaled_features[i:i+sequence_length]).any() or np.isinf(scaled_features[i:i+sequence_length]).any():
+                continue
+                
             # รวมข้อมูลจาก sequence_length แถวเป็นแถวเดียว
             row = scaled_features[i:i+sequence_length].flatten()
             X.append(row)
             # ค่า y คือค่า Close ถัดไป
-            y.append(features[i+sequence_length, target_idx])
+            y.append(features_array[i+sequence_length, target_idx])
         
+        if not X:
+            raise ValueError("No valid sequences could be created. Check for NaN or Infinity values in the data.")
+            
         X_array = np.array(X)
         y_array = np.array(y)
         
@@ -154,16 +184,23 @@ class SequenceDataHandler:
         """
         print("\n--- Preparing Bagging Approach Data ---")
         
+        # ตรวจสอบว่ามีข้อมูลครบทุกคู่เงิน
+        for pair in self.config.CURRENCY_PAIRS:
+            if pair not in model_data:
+                raise ValueError(f"Missing data for currency pair: {pair}")
+            if 'selected' not in model_data[pair]:
+                raise ValueError(f"Missing 'selected' data type for currency pair: {pair}")
+        
         # รวมข้อมูลจากทั้ง 3 คู่เงิน (ใช้ข้อมูลประเภท 'selected')
         X_seq_train_all = []
         y_seq_train_all = []
-        X_seq_test_all = []
-        y_seq_test_all = []
+        X_seq_test_pairs = []
+        y_seq_test_pairs = []
         
         X_tab_train_all = []
         y_tab_train_all = []
-        X_tab_test_all = []
-        y_tab_test_all = []
+        X_tab_test_pairs = []
+        y_tab_test_pairs = []
         
         # ข้อมูลอื่นๆ ที่ต้องเก็บไว้สำหรับแต่ละคู่เงิน
         seq_scalers = {}
@@ -179,14 +216,14 @@ class SequenceDataHandler:
             # เก็บข้อมูล sequence
             X_seq_train_all.append(pair_data['X_seq_train'])
             y_seq_train_all.append(pair_data['y_seq_train'])
-            X_seq_test_all.append(pair_data['X_seq_test'])
-            y_seq_test_all.append(pair_data['y_seq_test'])
+            X_seq_test_pairs.append(pair_data['X_seq_test'])
+            y_seq_test_pairs.append(pair_data['y_seq_test'])
             
             # เก็บข้อมูล tabular
             X_tab_train_all.append(pair_data['X_tab_train'])
             y_tab_train_all.append(pair_data['y_tab_train'])
-            X_tab_test_all.append(pair_data['X_tab_test'])
-            y_tab_test_all.append(pair_data['y_tab_test'])
+            X_tab_test_pairs.append(pair_data['X_tab_test'])
+            y_tab_test_pairs.append(pair_data['y_tab_test'])
             
             # เก็บข้อมูลอื่นๆ
             seq_scalers[pair] = pair_data['seq_scaler']
@@ -205,17 +242,65 @@ class SequenceDataHandler:
         print(f"Combined sequence training data shape: X: {X_seq_train_combined.shape}, y: {y_seq_train_combined.shape}")
         print(f"Combined tabular training data shape: X: {X_tab_train_combined.shape}, y: {y_tab_train_combined.shape}")
         
+        # ตรวจสอบว่าข้อมูลมีความสมบูรณ์
+        if np.isnan(X_seq_train_combined).any() or np.isinf(X_seq_train_combined).any():
+            print("WARNING: NaN or Inf values detected in X_seq_train_combined")
+        if np.isnan(y_seq_train_combined).any() or np.isinf(y_seq_train_combined).any():
+            print("WARNING: NaN or Inf values detected in y_seq_train_combined")
+        if np.isnan(X_tab_train_combined).any() or np.isinf(X_tab_train_combined).any():
+            print("WARNING: NaN or Inf values detected in X_tab_train_combined")
+        if np.isnan(y_tab_train_combined).any() or np.isinf(y_tab_train_combined).any():
+            print("WARNING: NaN or Inf values detected in y_tab_train_combined")
+        
         return {
             'X_seq_train': X_seq_train_combined,
             'y_seq_train': y_seq_train_combined,
-            'X_seq_test_pairs': X_seq_test_all,
-            'y_seq_test_pairs': y_seq_test_all,
+            'X_seq_test_pairs': X_seq_test_pairs,
+            'y_seq_test_pairs': y_seq_test_pairs,
             'X_tab_train': X_tab_train_combined,
             'y_tab_train': y_tab_train_combined,
-            'X_tab_test_pairs': X_tab_test_all,
-            'y_tab_test_pairs': y_tab_test_all,
+            'X_tab_test_pairs': X_tab_test_pairs,
+            'y_tab_test_pairs': y_tab_test_pairs,
             'seq_scalers': seq_scalers,
             'target_idxs': target_idxs,
             'tab_scalers': tab_scalers,
             'tab_target_idxs': tab_target_idxs
         }
+        
+    def create_sliding_window_cv(self, X: np.ndarray, y: np.ndarray, 
+                                window_size: int = 500, step: int = 100, 
+                                n_splits: int = 5) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Create sliding window cross-validation folds for time series data
+        
+        Args:
+            X: Features array
+            y: Target array
+            window_size: Size of each training window
+            step: Step size between windows
+            n_splits: Number of folds/splits to create
+            
+        Returns:
+            List of (train_indices, test_indices) for each fold
+        """
+        n_samples = X.shape[0]
+        indices = np.arange(n_samples)
+        
+        # ตรวจสอบว่ามีข้อมูลเพียงพอ
+        if n_samples <= window_size + step:
+            raise ValueError(f"Not enough samples ({n_samples}) for window_size ({window_size}) + step ({step})")
+            
+        folds = []
+        for i in range(min(n_splits, (n_samples - window_size) // step)):
+            start_idx = i * step
+            end_idx = start_idx + window_size
+            train_indices = indices[start_idx:end_idx]
+            test_indices = indices[end_idx:end_idx + step]
+            
+            # ตรวจสอบว่ามีข้อมูลเพียงพอสำหรับการทดสอบ
+            if len(test_indices) == 0:
+                break
+                
+            folds.append((train_indices, test_indices))
+            
+        return folds

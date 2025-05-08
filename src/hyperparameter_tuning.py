@@ -9,18 +9,55 @@ import pandas as pd
 from typing import Dict, Any, List, Tuple, Callable, Optional
 import time
 import json
+from datetime import datetime  # เพิ่มการนำเข้า datetime
 from sklearn.model_selection import KFold, train_test_split
 import optuna
 from optuna.samplers import TPESampler
 from optuna.pruners import MedianPruner
 import matplotlib.pyplot as plt
+import tensorflow as tf  # เพิ่มการนำเข้า TensorFlow
 
-# Import project modules
-from config.config import Config
-from src.stage3_prediction_models.lstm_model import LSTMModel
-from src.stage3_prediction_models.gru_model import GRUModel
-from src.stage3_prediction_models.xgboost_model import XGBoostModel
-from src.stage3_prediction_models.tft_model import TFTModel
+# เพิ่มคลาส MetricsCallback ก่อนคลาส HyperparameterTuner
+class MetricsCallback(tf.keras.callbacks.Callback):
+    """
+    Callback สำหรับบันทึก metrics ระหว่างการเทรนโมเดล
+    """
+    def __init__(self, validation_data=None):
+        super(MetricsCallback, self).__init__()
+        self.validation_data = validation_data
+        self.best_metrics = {'val_loss': float('inf'), 'val_rmse': float('inf'), 'directional_accuracy': 0}
+    
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is None:
+            logs = {}
+            
+        if 'val_loss' in logs and logs['val_loss'] < self.best_metrics['val_loss']:
+            self.best_metrics['val_loss'] = logs['val_loss']
+            
+            # Check if val_root_mean_squared_error exists
+            if 'val_root_mean_squared_error' in logs:
+                self.best_metrics['val_rmse'] = logs['val_root_mean_squared_error']
+            
+            # Calculate directional accuracy on validation set
+            if self.validation_data is not None and len(self.validation_data) >= 2:
+                try:
+                    y_pred = self.model.predict(self.validation_data[0])
+                    
+                    # Reshape predictions if needed
+                    if len(y_pred.shape) > 1 and y_pred.shape[1] == 1:
+                        y_pred = y_pred.flatten()
+                    
+                    true_val = self.validation_data[1]
+                    
+                    # Calculate direction
+                    true_direction = np.diff(true_val) > 0
+                    pred_direction = np.diff(y_pred) > 0
+                    
+                    # Calculate accuracy
+                    direction_matches = true_direction == pred_direction
+                    self.best_metrics['directional_accuracy'] = np.mean(direction_matches) * 100
+                except Exception as e:
+                    print(f"Error calculating directional accuracy: {e}")
 
 
 class HyperparameterTuner:
@@ -212,29 +249,6 @@ class HyperparameterTuner:
                 # Use a custom callback to record best metrics
                 best_metrics = {'val_loss': float('inf'), 'val_rmse': float('inf'), 'directional_accuracy': 0}
                 
-                class MetricsCallback(tf.keras.callbacks.Callback):
-                    def on_epoch_end(self, epoch, logs=None):
-                        if logs['val_loss'] < best_metrics['val_loss']:
-                            best_metrics['val_loss'] = logs['val_loss']
-                            best_metrics['val_rmse'] = logs['val_root_mean_squared_error']
-                            
-                            # Calculate directional accuracy on validation set
-                            y_pred = self.model.predict(self.validation_data[0])
-                            
-                            # Reshape predictions if needed
-                            if len(y_pred.shape) > 1 and y_pred.shape[1] == 1:
-                                y_pred = y_pred.flatten()
-                            
-                            true_val = self.validation_data[1]
-                            
-                            # Calculate direction
-                            true_direction = np.diff(true_val) > 0
-                            pred_direction = np.diff(y_pred) > 0
-                            
-                            # Calculate accuracy
-                            direction_matches = true_direction == pred_direction
-                            best_metrics['directional_accuracy'] = np.mean(direction_matches) * 100
-                
                 # Create callback with validation data
                 metrics_callback = MetricsCallback()
                 metrics_callback.validation_data = (self.X_val, self.y_val)
@@ -260,12 +274,12 @@ class HyperparameterTuner:
                 )
                 
                 # Get validation loss from history
-                val_loss = best_metrics['val_loss']
-                directional_accuracy = best_metrics['directional_accuracy']
+                val_loss = metrics_callback.best_metrics['val_loss']
+                directional_accuracy = metrics_callback.best_metrics['directional_accuracy']
                 
                 # Report additional metrics
                 trial.set_user_attr('directional_accuracy', directional_accuracy)
-                trial.set_user_attr('val_rmse', best_metrics['val_rmse'])
+                trial.set_user_attr('val_rmse', metrics_callback.best_metrics['val_rmse'])
                 
                 # Use custom objective that balances RMSE and directional accuracy
                 objective = val_loss * (100 - directional_accuracy) / 100

@@ -229,47 +229,51 @@ class ForexPredictionSystem:
         Returns:
             Tuple of (model, history, predictions)
         """
-        if model_type == 'LSTM':
-            model, history = self.lstm_model.train(X_train, y_train, model_name)
-            predictions = self.lstm_model.predict(model, X_test, scaler, target_idx)
-            return model, history, predictions
-        
-        elif model_type == 'GRU':
-            model, history = self.gru_model.train(X_train, y_train, model_name)
-            predictions = self.gru_model.predict(model, X_test, scaler, target_idx)
-            return model, history, predictions
-        
-        elif model_type == 'XGBoost':
-            # For XGBoost, we need tabular data and different parameters
-            # Check if we have a tuple of (X_train, y_train, X_test, scaler, target_idx)
-            if isinstance(X_train, tuple) and len(X_train) == 5:
-                X_train_tab, y_train_tab, X_test_tab, tab_scaler, tab_target_idx = X_train
-                
-                # Split data for early stopping
-                X_tr, X_val, y_tr, y_val = train_test_split(
-                    X_train_tab, y_train_tab, test_size=self.config.VALIDATION_SPLIT, shuffle=False
-                )
-                
-                model = self.xgb_model.train(X_tr, y_tr, eval_set=[(X_val, y_val)])
-                if model is not None:
-                    self.xgb_model.save_model(model, model_name)
-                
-                predictions = self.xgb_model.predict(model, X_test_tab)
-                # No history for XGBoost
-                return model, None, predictions
+        try:
+            if model_type == 'LSTM':
+                model, history = self.lstm_model.train(X_train, y_train, model_name)
+                predictions = self.lstm_model.predict(model, X_test, scaler, target_idx)
+                return model, history, predictions
+            
+            elif model_type == 'GRU':
+                model, history = self.gru_model.train(X_train, y_train, model_name)
+                predictions = self.gru_model.predict(model, X_test, scaler, target_idx)
+                return model, history, predictions
+            
+            elif model_type == 'XGBoost':
+                # For XGBoost, we need tabular data and different parameters
+                # Check if we have a tuple of (X_train, y_train, X_test, scaler, target_idx)
+                if isinstance(X_train, tuple) and len(X_train) == 5:
+                    X_train_tab, y_train_tab, X_test_tab, tab_scaler, tab_target_idx = X_train
+                    
+                    # Split data for early stopping
+                    X_tr, X_val, y_tr, y_val = train_test_split(
+                        X_train_tab, y_train_tab, test_size=self.config.VALIDATION_SPLIT, shuffle=False
+                    )
+                    
+                    model = self.xgb_model.train(X_tr, y_tr, eval_set=[(X_val, y_val)])
+                    if model is not None:
+                        self.xgb_model.save_model(model, model_name)
+                    
+                    predictions = self.xgb_model.predict(model, X_test_tab)
+                    # No history for XGBoost
+                    return model, None, predictions
+                else:
+                    print(f"Error: XGBoost requires tabular data, but received sequence data")
+                    raise ValueError("XGBoost requires tabular data, but received sequence data")
+            
+            elif model_type == 'TFT':
+                model, history = self.tft_model.train(X_train, y_train, model_name)
+                predictions = self.tft_model.predict(model, X_test, scaler, target_idx)
+                return model, history, predictions
+            
             else:
-                print(f"Error: XGBoost requires tabular data, but received sequence data")
-                return None, None, None
-        
-        elif model_type == 'TFT':
-            model, history = self.tft_model.train(X_train, y_train, model_name)
-            predictions = self.tft_model.predict(model, X_test, scaler, target_idx)
-            return model, history, predictions
-        
-        else:
-            print(f"Error: Unknown model type {model_type}")
-            return None, None, None
-    
+                print(f"Error: Unknown model type {model_type}")
+                raise ValueError(f"Unknown model type {model_type}")
+        except Exception as e:
+            print(f"Error in train_single_model for {model_type}: {e}")
+            raise
+
     def run_model_training(self, model_types=None, pairs=None):
         """
         Stage 3: Train prediction models
@@ -300,161 +304,169 @@ class ForexPredictionSystem:
             
             # Train models for each data type (raw, enhanced, selected)
             for idx, data_type in enumerate(['raw', 'enhanced', 'selected'], 1):
-                data = self.model_data[pair][data_type]
-                model_identifier = f"{symbol}{idx}"  # E1, E2, E3, G1, G2, G3, J1, J2, J3
-                
-                print(f"\nTraining {data_type} models [{model_identifier}]...")
-                
-                # Storage for models, histories, and predictions
-                model_results = {}
-                
-                # Train each model type
-                for model_type in model_types:
-                    print(f"Training {model_type} model for {pair} {data_type}...")
+                try:
+                    data = self.model_data[pair][data_type]
+                    model_identifier = f"{symbol}{idx}"  # E1, E2, E3, G1, G2, G3, J1, J2, J3
                     
-                    if model_type == 'XGBoost':
-                        # For XGBoost, use tabular data
-                        X_train_tuple = (
-                            data['X_tab_train'], 
-                            data['y_tab_train'],
-                            data['X_tab_test'],
-                            data['tab_scaler'],
-                            data['tab_target_idx']
-                        )
-                        
-                        model, history, predictions = self.train_single_model(
-                            model_type,
-                            X_train_tuple,  # Pass the tuple of data
-                            None,  # Not used for XGBoost
-                            f"{pair}_{data_type}_{model_type}",
-                            None,  # Not used for XGBoost
-                            None,  # Not used for XGBoost
-                            None   # Not used for XGBoost
-                        )
-
-                    elif model_type == 'LSTM':
-                        # รวมพารามิเตอร์เริ่มต้นกับพารามิเตอร์เฉพาะคู่สกุลเงิน
-                        model_params = self.config.LSTM_PARAMS.copy()
-                        
-                        # ถ้ามีพารามิเตอร์เฉพาะสำหรับคู่สกุลเงินนี้
-                        if (pair in self.config.PAIR_SPECIFIC_PARAMS and 
-                            'LSTM' in self.config.PAIR_SPECIFIC_PARAMS[pair]):
-                            model_params.update(self.config.PAIR_SPECIFIC_PARAMS[pair]['LSTM'])
-                        
-                        model_instance = LSTMModel(self.config, model_params)
-                        
-                    else:
-                        # For sequence models (LSTM, GRU, TFT)
-                        model, history, predictions = self.train_single_model(
-                            model_type,
-                            data['X_seq_train'],
-                            data['y_seq_train'],
-                            f"{pair}_{data_type}_{model_type}",
-                            data['X_seq_test'],
-                            data['seq_scaler'],
-                            data['target_idx']
-                        )
+                    print(f"\nTraining {data_type} models [{model_identifier}]...")
                     
-                    # Store results
-                    actual_values = data['y_seq_test']
-                    actual_dates = self.processed_data[pair][data_type]['test']['Time'].values[self.config.SEQUENCE_LENGTH:]
+                    # Storage for models, histories, and predictions
+                    model_results = {}
                     
-                    model_results[model_type] = {
-                        'model': model,
-                        'history': history,
-                        'predictions': predictions,
-                        'actual': actual_values,
-                        'dates': actual_dates
-                    }
+                    # Train each model type
+                    for model_type in model_types:
+                        try:
+                            print(f"Training {model_type} model for {pair} {data_type}...")
+                            
+                            if model_type == 'XGBoost':
+                                # For XGBoost, use tabular data
+                                X_train_tuple = (
+                                    data['X_tab_train'], 
+                                    data['y_tab_train'],
+                                    data['X_tab_test'],
+                                    data['tab_scaler'],
+                                    data['tab_target_idx']
+                                )
+                                
+                                model, history, predictions = self.train_single_model(
+                                    model_type,
+                                    X_train_tuple,  # Pass the tuple of data
+                                    None,  # Not used for XGBoost
+                                    f"{pair}_{data_type}_{model_type}",
+                                    None,  # Not used for XGBoost
+                                    None,  # Not used for XGBoost
+                                    None   # Not used for XGBoost
+                                )
+                            else:
+                                # For sequence models (LSTM, GRU, TFT)
+                                model, history, predictions = self.train_single_model(
+                                    model_type,
+                                    data['X_seq_train'],
+                                    data['y_seq_train'],
+                                    f"{pair}_{data_type}_{model_type}",
+                                    data['X_seq_test'],
+                                    data['seq_scaler'],
+                                    data['target_idx']
+                                )
+                            
+                            # Store results
+                            actual_values = data['y_seq_test']
+                            actual_dates = self.processed_data[pair][data_type]['test']['Time'].values[self.config.SEQUENCE_LENGTH:]
+                            
+                            model_results[model_type] = {
+                                'model': model,
+                                'history': history,
+                                'predictions': predictions,
+                                'actual': actual_values,
+                                'dates': actual_dates
+                            }
+                            
+                            # Plot training history if available
+                            if history is not None:
+                                self.visualizer.plot_training_history(history, f"{data_type}_{model_type}", pair)
+                        except Exception as e:
+                            print(f"Error training {model_type} model for {pair} {data_type}: {e}")
+                            print(f"Skipping {model_type} model for {pair} {data_type} and continuing with other models...")
                     
-                    # Plot training history if available
-                    if history is not None:
-                        self.visualizer.plot_training_history(history, f"{data_type}_{model_type}", pair)
-                
-                # Store results for this data type
-                pair_results[model_identifier] = model_results
+                    # Store results for this data type
+                    pair_results[model_identifier] = model_results
+                except Exception as e:
+                    print(f"Error processing data type {data_type} for {pair}: {e}")
+                    print(f"Skipping data type {data_type} for {pair} and continuing with other data types...")
             
             # Store results for this pair
             results[pair] = pair_results
         
         # 2. Train models for bagging approach
         if 'bagging' in pairs:
-            print("\n--- Training Bagging Approach [B] ---")
-            
-            # Use data from all pairs (E3, G3, J3)
-            bagging_data = self.model_data['bagging']
-            bagging_results = {}
-            
-            # Train each model type
-            for model_type in model_types:
-                print(f"Training {model_type} model for Bagging...")
+            try:
+                print("\n--- Training Bagging Approach [B] ---")
                 
-                if model_type == 'XGBoost':
-                    # For XGBoost, use tabular data
-                    # Split data for early stopping
-                    X_train, X_val, y_train, y_val = train_test_split(
-                        bagging_data['X_tab_train'], 
-                        bagging_data['y_tab_train'],
-                        test_size=self.config.VALIDATION_SPLIT,
-                        shuffle=False
-                    )
-                    
-                    bagging_model = self.xgb_model.train(
-                        X_train, y_train, eval_set=[(X_val, y_val)]
-                    )
-                    
-                    if bagging_model is not None:
-                        self.xgb_model.save_model(bagging_model, f"Bagging_{model_type}")
-                    
-                    history = None
-                else:
-                    # For sequence models (LSTM, GRU, TFT)
-                    bagging_model, history = getattr(self, f"{model_type.lower()}_model").train(
-                        bagging_data['X_seq_train'], 
-                        bagging_data['y_seq_train'], 
-                        f"Bagging_{model_type}"
-                    )
+                # Use data from all pairs (E3, G3, J3)
+                bagging_data = self.model_data['bagging']
+                bagging_results = {}
                 
-                # Store model and history
-                for i, pair in enumerate(self.config.CURRENCY_PAIRS):
-                    print(f"Predicting {pair} with Bagging {model_type} model...")
-                    
-                    if model_type == 'XGBoost':
-                        # For XGBoost, use tabular data
-                        predictions = self.xgb_model.predict(
-                            bagging_model, 
-                            bagging_data['X_tab_test_pairs'][i]
-                        )
-                    else:
-                        # For sequence models
-                        predictions = getattr(self, f"{model_type.lower()}_model").predict(
-                            bagging_model, 
-                            bagging_data['X_seq_test_pairs'][i], 
-                            bagging_data['seq_scalers'][pair], 
-                            bagging_data['target_idxs'][pair]
-                        )
-                    
-                    # Get actual values
-                    actual_values = bagging_data['y_seq_test_pairs'][i]
-                    actual_dates = self.processed_data[pair]['selected']['test']['Time'].values[self.config.SEQUENCE_LENGTH:]
-                    
-                    if pair not in bagging_results:
-                        bagging_results[pair] = {}
-                    
-                    bagging_results[pair][model_type] = {
-                        'model': bagging_model,
-                        'history': history,
-                        'predictions': predictions,
-                        'actual': actual_values,
-                        'dates': actual_dates
-                    }
+                # Train each model type
+                for model_type in model_types:
+                    try:
+                        print(f"Training {model_type} model for Bagging...")
+                        
+                        if model_type == 'XGBoost':
+                            # For XGBoost, use tabular data
+                            # Split data for early stopping
+                            X_train, X_val, y_train, y_val = train_test_split(
+                                bagging_data['X_tab_train'], 
+                                bagging_data['y_tab_train'],
+                                test_size=self.config.VALIDATION_SPLIT,
+                                shuffle=False
+                            )
+                            
+                            bagging_model = self.xgb_model.train(
+                                X_train, y_train, eval_set=[(X_val, y_val)]
+                            )
+                            
+                            if bagging_model is not None:
+                                self.xgb_model.save_model(bagging_model, f"Bagging_{model_type}")
+                            
+                            history = None
+                        else:
+                            # For sequence models (LSTM, GRU, TFT)
+                            bagging_model, history = getattr(self, f"{model_type.lower()}_model").train(
+                                bagging_data['X_seq_train'], 
+                                bagging_data['y_seq_train'], 
+                                f"Bagging_{model_type}"
+                            )
+                        
+                        # Store model and history
+                        for i, pair in enumerate(self.config.CURRENCY_PAIRS):
+                            try:
+                                print(f"Predicting {pair} with Bagging {model_type} model...")
+                                
+                                if model_type == 'XGBoost':
+                                    # For XGBoost, use tabular data
+                                    predictions = self.xgb_model.predict(
+                                        bagging_model, 
+                                        bagging_data['X_tab_test_pairs'][i]
+                                    )
+                                else:
+                                    # For sequence models
+                                    predictions = getattr(self, f"{model_type.lower()}_model").predict(
+                                        bagging_model, 
+                                        bagging_data['X_seq_test_pairs'][i], 
+                                        bagging_data['seq_scalers'][pair], 
+                                        bagging_data['target_idxs'][pair]
+                                    )
+                                
+                                # Get actual values
+                                actual_values = bagging_data['y_seq_test_pairs'][i]
+                                actual_dates = self.processed_data[pair]['selected']['test']['Time'].values[self.config.SEQUENCE_LENGTH:]
+                                
+                                if pair not in bagging_results:
+                                    bagging_results[pair] = {}
+                                
+                                bagging_results[pair][model_type] = {
+                                    'model': bagging_model,
+                                    'history': history,
+                                    'predictions': predictions,
+                                    'actual': actual_values,
+                                    'dates': actual_dates
+                                }
+                            except Exception as e:
+                                print(f"Error predicting {pair} with Bagging {model_type} model: {e}")
+                                print(f"Skipping prediction for {pair} with Bagging {model_type} model...")
+                        
+                        # Plot training history if available
+                        if history is not None:
+                            self.visualizer.plot_training_history(history, f"Bagging_{model_type}", "Combined")
+                    except Exception as e:
+                        print(f"Error training {model_type} model for Bagging: {e}")
+                        print(f"Skipping {model_type} model for Bagging and continuing with other models...")
                 
-                # Plot training history if available
-                if history is not None:
-                    self.visualizer.plot_training_history(history, f"Bagging_{model_type}", "Combined")
-            
-            # Store bagging results
-            results['bagging'] = bagging_results
+                # Store bagging results
+                results['bagging'] = bagging_results
+            except Exception as e:
+                print(f"Error in Bagging approach: {e}")
+                print("Skipping Bagging approach...")
         
         self.results = results
         return True
@@ -730,13 +742,34 @@ class ForexPredictionSystem:
         
         # Load best hyperparameters
         best_params_file = os.path.join(self.config.HYPERPARAMS_PATH, "best_params_all.json")
-        if not os.path.exists(best_params_file):
-            print(f"Best parameters file not found: {best_params_file}")
-            print("Please run hyperparameter tuning first.")
-            return False
         
-        with open(best_params_file, 'r') as f:
-            best_params_all = json.load(f)
+        # เพิ่มการตรวจสอบไฟล์และการดักจับข้อผิดพลาด
+        try:
+            if not os.path.exists(best_params_file):
+                print(f"Best parameters file not found: {best_params_file}")
+                print("Please run hyperparameter tuning first.")
+                return False
+            
+            with open(best_params_file, 'r') as f:
+                best_params_all = json.load(f)
+                
+            # ตรวจสอบรูปแบบข้อมูล
+            if not isinstance(best_params_all, dict):
+                print(f"Invalid format in best parameters file: {best_params_file}")
+                print("Expected a dictionary. Please run hyperparameter tuning again.")
+                return False
+        except (IOError, PermissionError) as e:
+            print(f"Error accessing best parameters file: {e}")
+            print("Please check file permissions and try again.")
+            return False
+        except json.JSONDecodeError as e:
+            print(f"Error parsing best parameters file: {e}")
+            print("The file appears to be corrupted. Please run hyperparameter tuning again.")
+            return False
+        except Exception as e:
+            print(f"Unexpected error loading best parameters file: {e}")
+            print("Please run hyperparameter tuning again.")
+            return False
         
         # Need to have prepared model data
         if not hasattr(self, 'model_data') or not self.model_data:
@@ -768,74 +801,82 @@ class ForexPredictionSystem:
                     print(f"\nTraining {model_type} model for {pair} using {data_type} data with tuned hyperparameters...")
                     
                     # Get best parameters for this model and pair
-                    if pair in best_params_all and model_type in best_params_all[pair] and data_type in best_params_all[pair][model_type]:
-                        best_params = best_params_all[pair][model_type][data_type]
-                        print(f"Using best parameters: {best_params}")
-                    else:
-                        print(f"No tuned parameters found for {model_type} on {pair} using {data_type} data. Using default parameters.")
-                        best_params = None
+                    try:
+                        if pair in best_params_all and model_type in best_params_all[pair] and data_type in best_params_all[pair][model_type]:
+                            best_params = best_params_all[pair][model_type][data_type]
+                            print(f"Using best parameters: {best_params}")
+                        else:
+                            print(f"No tuned parameters found for {model_type} on {pair} using {data_type} data. Using default parameters.")
+                            best_params = None
                     
-                    # Train model with best parameters
-                    if model_type == 'LSTM':
-                        model_instance = LSTMModel(self.config, best_params)
-                        model, history = model_instance.train(
-                            data['X_seq_train'], data['y_seq_train'], 
-                            f"{pair}_{data_type}_{model_type}_tuned"
-                        )
-                        predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
+                        # Train model with best parameters
+                        if model_type == 'LSTM':
+                            model_instance = LSTMModel(self.config, best_params)
+                            model, history = model_instance.train(
+                                data['X_seq_train'], data['y_seq_train'], 
+                                f"{pair}_{data_type}_{model_type}_tuned"
+                            )
+                            predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
+                        
+                        elif model_type == 'GRU':
+                            model_instance = GRUModel(self.config, best_params)
+                            model, history = model_instance.train(
+                                data['X_seq_train'], data['y_seq_train'], 
+                                f"{pair}_{data_type}_{model_type}_tuned"
+                            )
+                            predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
+                        
+                        elif model_type == 'XGBoost':
+                            model_instance = XGBoostModel(self.config, best_params)
+                            # Split data for validation
+                            X_train, X_val, y_train, y_val = train_test_split(
+                                data['X_tab_train'], data['y_tab_train'], 
+                                test_size=0.2, shuffle=False
+                            )
+                            model = model_instance.train(
+                                X_train, y_train,
+                                eval_set=[(X_val, y_val)]
+                            )
+                            predictions = model_instance.predict(model, data['X_tab_test'])
+                            history = None
+                        
+                        elif model_type == 'TFT':
+                            model_instance = TFTModel(self.config, best_params)
+                            model, history = model_instance.train(
+                                data['X_seq_train'], data['y_seq_train'], 
+                                f"{pair}_{data_type}_{model_type}_tuned"
+                            )
+                            predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
+                        else:
+                            print(f"Unsupported model type: {model_type}. Skipping.")
+                            continue
+                        
+                        # Store results
+                        actual_values = data['y_seq_test'] if model_type != 'XGBoost' else data['y_tab_test']
+                        actual_dates = self.processed_data[pair][data_type]['test']['Time'].values[self.config.SEQUENCE_LENGTH:]
+                        
+                        results[pair][data_type][model_type] = {
+                            'model': model,
+                            'history': history,
+                            'predictions': predictions,
+                            'actual': actual_values,
+                            'dates': actual_dates
+                        }
+                        
+                        # Compare with untuned model
+                        print("\nEvaluating tuned model performance...")
+                        metrics = self.evaluator.calculate_metrics(actual_values, predictions)
+                        trading_metrics = self.evaluator.calculate_trading_metrics(actual_values, predictions)
+                        benchmark = self.evaluator.compare_with_benchmarks(actual_values, predictions)
+                        
+                        print("\nTuned model performance:")
+                        print(f"  RMSE: {metrics['rmse']:.6f}")
+                        print(f"  Directional Accuracy: {metrics['directional_accuracy']:.2f}%")
+                        print(f"  Annual Return: {trading_metrics['annual_return']:.2f}%")
                     
-                    elif model_type == 'GRU':
-                        model_instance = GRUModel(self.config, best_params)
-                        model, history = model_instance.train(
-                            data['X_seq_train'], data['y_seq_train'], 
-                            f"{pair}_{data_type}_{model_type}_tuned"
-                        )
-                        predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
-                    
-                    elif model_type == 'XGBoost':
-                        model_instance = XGBoostModel(self.config, best_params)
-                        # Split data for validation
-                        X_train, X_val, y_train, y_val = train_test_split(
-                            data['X_tab_train'], data['y_tab_train'], 
-                            test_size=0.2, shuffle=False
-                        )
-                        model = model_instance.train(
-                            X_train, y_train,
-                            eval_set=[(X_val, y_val)]
-                        )
-                        predictions = model_instance.predict(model, data['X_tab_test'])
-                        history = None
-                    
-                    elif model_type == 'TFT':
-                        model_instance = TFTModel(self.config, best_params)
-                        model, history = model_instance.train(
-                            data['X_seq_train'], data['y_seq_train'], 
-                            f"{pair}_{data_type}_{model_type}_tuned"
-                        )
-                        predictions = model_instance.predict(model, data['X_seq_test'], data['seq_scaler'], data['target_idx'])
-                    
-                    # Store results
-                    actual_values = data['y_seq_test'] if model_type != 'XGBoost' else data['y_tab_test']
-                    actual_dates = self.processed_data[pair][data_type]['test']['Time'].values[self.config.SEQUENCE_LENGTH:]
-                    
-                    results[pair][data_type][model_type] = {
-                        'model': model,
-                        'history': history,
-                        'predictions': predictions,
-                        'actual': actual_values,
-                        'dates': actual_dates
-                    }
-                    
-                    # Compare with untuned model
-                    print("\nEvaluating tuned model performance...")
-                    metrics = self.evaluator.calculate_metrics(actual_values, predictions)
-                    trading_metrics = self.evaluator.calculate_trading_metrics(actual_values, predictions)
-                    benchmark = self.evaluator.compare_with_benchmarks(actual_values, predictions)
-                    
-                    print("\nTuned model performance:")
-                    print(f"  RMSE: {metrics['rmse']:.6f}")
-                    print(f"  Directional Accuracy: {metrics['directional_accuracy']:.2f}%")
-                    print(f"  Annual Return: {trading_metrics['annual_return']:.2f}%")
+                    except Exception as e:
+                        print(f"Error training or evaluating {model_type} model for {pair} using {data_type} data: {e}")
+                        print("Skipping to next model/pair combination...")
         
         # Store results for further analysis
         self.tuned_results = results

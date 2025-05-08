@@ -9,7 +9,10 @@ from typing import Tuple, List, Dict, Optional, Any
 
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense, LSTM, Dropout, concatenate
+from tensorflow.keras.layers import (
+    Input, Dense, LSTM, Dropout, concatenate, MultiHeadAttention,
+    LayerNormalization, GlobalAveragePooling1D
+)
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.metrics import RootMeanSquaredError
@@ -50,6 +53,7 @@ class TFTModel:
         attention_heads = self.params.get('attention_heads', 4)
         dropout = self.params.get('dropout', 0.1)
         hidden_units = self.params.get('hidden_units', 64)
+        hidden_continuous_size = self.params.get('hidden_continuous_size', 32)
         
         # Print model configuration
         print(f"\nBuilding TFT model with:")
@@ -57,37 +61,54 @@ class TFTModel:
         print(f"- Features: {num_features}")
         print(f"- Attention heads: {attention_heads}")
         print(f"- Hidden units: {hidden_units}")
+        print(f"- Hidden continuous size: {hidden_continuous_size}")
         print(f"- Dropout: {dropout}")
         
         # สร้างโมเดล
         # Input layer
         inputs = Input(shape=input_shape, name='input_layer')
         
+        # Variable selection (simplified)
+        vs_layer = Dense(hidden_continuous_size, activation='relu', name='variable_selection')(inputs)
+        vs_layer = Dropout(dropout, name='vs_dropout')(vs_layer)
+        
         # Encoder (LSTM layer)
-        x = LSTM(hidden_units, return_sequences=True, name='lstm_encoder')(inputs)
-        x = Dropout(dropout, name='dropout_encoder')(x)
+        encoder = LSTM(hidden_units, return_sequences=True, name='lstm_encoder')(vs_layer)
+        encoder = Dropout(dropout, name='encoder_dropout')(encoder)
         
-        # สร้างแบบจำลองของ Multi-head attention layer
-        attention_outputs = []
-        for i in range(attention_heads):
-            # Simple attention mechanism
-            attention = Dense(hidden_units, activation='tanh', name=f'attention_dense_{i}')(x)
-            attention = Dense(1, activation='softmax', name=f'attention_weights_{i}')(attention)
-            attention_output = tf.keras.layers.multiply([x, attention], name=f'attention_applied_{i}')
-            attention_outputs.append(attention_output)
+        # Self-attention
+        # Layer normalization
+        norm_layer = LayerNormalization(epsilon=1e-6, name='layer_norm_1')(encoder)
         
-        # รวม attention heads
-        if attention_heads > 1:
-            x = concatenate(attention_outputs, name='concatenate_attention')
-        else:
-            x = attention_outputs[0]
+        # Multi-head attention
+        attention_output = MultiHeadAttention(
+            num_heads=attention_heads,
+            key_dim=hidden_units // attention_heads,
+            name='multi_head_attention'
+        )(norm_layer, norm_layer, norm_layer)
         
-        # Decoder (LSTM layer)
-        x = LSTM(hidden_units, name='lstm_decoder')(x)
-        x = Dropout(dropout, name='dropout_decoder')(x)
+        # Add & Norm (residual connection)
+        attention_output = tf.keras.layers.Add(name='residual_1')([attention_output, encoder])
+        attention_output = LayerNormalization(epsilon=1e-6, name='layer_norm_2')(attention_output)
         
-        # Output layer
-        outputs = Dense(1, name='output_layer')(x)
+        # Position-wise Feed-Forward Network
+        ffn = Dense(hidden_units * 4, activation='relu', name='ffn_1')(attention_output)
+        ffn = Dropout(dropout, name='ffn_dropout_1')(ffn)
+        ffn = Dense(hidden_units, name='ffn_2')(ffn)
+        ffn = Dropout(dropout, name='ffn_dropout_2')(ffn)
+        
+        # Add & Norm (another residual connection)
+        ffn_output = tf.keras.layers.Add(name='residual_2')([ffn, attention_output])
+        ffn_output = LayerNormalization(epsilon=1e-6, name='layer_norm_3')(ffn_output)
+        
+        # Temporal Fusion Decoder: Simplified using an LSTM
+        decoder = LSTM(hidden_units, name='lstm_decoder')(ffn_output)
+        decoder = Dropout(dropout, name='decoder_dropout')(decoder)
+        
+        # Final MLP layers
+        outputs = Dense(hidden_units // 2, activation='relu', name='final_dense_1')(decoder)
+        outputs = Dropout(dropout / 2, name='final_dropout')(outputs)
+        outputs = Dense(1, name='output_layer')(outputs)
         
         # สร้างโมเดล
         model = Model(inputs=inputs, outputs=outputs)
@@ -106,9 +127,9 @@ class TFTModel:
         return model
     
     def train(self, X_train: np.ndarray, y_train: np.ndarray, model_name: str, 
-          callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
-          epochs: Optional[int] = None,
-          validation_data: Optional[Tuple[np.ndarray, np.ndarray]] = None) -> Tuple[tf.keras.Model, tf.keras.callbacks.History]:
+              callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
+              epochs: Optional[int] = None,
+              validation_data: Optional[Tuple[np.ndarray, np.ndarray]] = None) -> Tuple[tf.keras.Model, tf.keras.callbacks.History]:
         """
         Train the TFT model
         
