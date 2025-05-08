@@ -29,18 +29,20 @@ class Config:
     # กำหนดช่วงเวลาสำหรับ training และ testing
     # ตั้งค่าเริ่มต้น (สามารถเปลี่ยนแปลงได้ตามข้อมูลจริง)
     TRAIN_START = "2020-01-01"
-    TRAIN_END = "2020-12-31"
-    VALIDATION_START = "2021-01-01"
-    VALIDATION_END = "2021-06-30"
-    TEST_START = "2021-07-01"
-    TEST_END = "2021-12-31"
+    TRAIN_END = "2021-12-31"
+    VALIDATION_START = "2022-01-01"
+    VALIDATION_END = "2022-06-30"
+    TEST_START = "2022-07-01"
+    TEST_END = "2022-12-31"
     
     # คู่เงินที่ใช้ในการทดสอบ
     CURRENCY_PAIRS = ["EURUSD", "GBPUSD", "USDJPY"]
     PAIR_SYMBOLS = {"EURUSD": "E", "GBPUSD": "G", "USDJPY": "J"}
     
     # พารามิเตอร์ทั่วไปสำหรับทุกโมเดล
-    SEQUENCE_LENGTH = 24  # ใช้ข้อมูล 24 ชั่วโมงย้อนหลังในการทำนาย
+    SEQUENCE_LENGTH_LONG = 48  # เพิ่มจาก 24 เป็น 48 ชั่วโมง สำหรับการวิเคราะห์ระยะกลางถึงระยะยาว (LSTM)
+    SEQUENCE_LENGTH_SHORT = 24  # คงเดิมที่ 24 ชั่วโมง สำหรับการวิเคราะห์ระยะสั้นถึงระยะกลาง (GRU)
+    SEQUENCE_LENGTH = 36  # เพิ่มจาก 24 เป็น 36 ชั่วโมงย้อนหลังในการทำนาย
     PREDICTION_HORIZON = 1  # ทำนายล่วงหน้า 1 ช่วงเวลา
     EPOCHS = 200
     BATCH_SIZE = 32
@@ -49,59 +51,59 @@ class Config:
     
     # ปรับ hyperparameters สำหรับ LSTM
     LSTM_PARAMS = {
-        'learning_rate': 0.0003,
-        'units_layer1': 192,
-        'units_layer2': 96,
-        'dropout1': 0.25,
-        'dropout2': 0.25,
-        'recurrent_dropout': 0.1,
-        'l1_reg': 0.00005,
-        'l2_reg': 0.0002,
-        'attention_units': 64,
-        'use_bidirectional': True,
-        'use_layer_norm': True
+        'learning_rate': 0.0001,        # ลดลงจาก 0.0003 เพื่อการเรียนรู้ที่ละเอียดขึ้น
+        'units_layer1': 256,            # เพิ่มจาก 192 เพื่อให้มีความจุมากขึ้นสำหรับแพทเทิร์นซับซ้อน
+        'units_layer2': 128,            # เพิ่มจาก 96 เพื่อให้เหมาะกับการประมวลผลข้อมูลระยะยาว
+        'dropout1': 0.2,                # ลดจาก 0.25 เพื่อให้สูญเสียข้อมูลน้อยลง
+        'dropout2': 0.2,                # ลดจาก 0.25 เช่นกัน
+        'recurrent_dropout': 0.05,      # ลดจาก 0.1 เพื่อรักษาความต่อเนื่องของข้อมูลลำดับเวลา
+        'l1_reg': 0.00002,              # ลดลงเพื่อให้โมเดลจับแพทเทิร์นซับซ้อนได้มากขึ้น
+        'l2_reg': 0.0001,               # ลดลงจาก 0.0002 เพื่อลดการ regularize
+        'attention_units': 96,          # เพิ่มจาก 64 เพื่อให้ attention มีความสามารถมากขึ้น
+        'use_bidirectional': True,      # คงเดิม เพราะช่วยจับแพทเทิร์นได้ดี
+        'use_layer_norm': True          # คงเดิม เพราะช่วยเพิ่มเสถียรภาพการเทรน
     }
 
     # สำหรับ GRU
     GRU_PARAMS = {
-        'learning_rate': 0.0003,
-        'units_layer1': 224,
-        'units_layer2': 112,
-        'dropout1': 0.2,
-        'dropout2': 0.2,
-        'recurrent_dropout': 0.05,
-        'l1_reg': 0.00005,
-        'l2_reg': 0.0001,
-        'attention_units': 64,
-        'use_bidirectional': True,
-        'use_layer_norm': True,
-        'use_attention': True
+        'learning_rate': 0.0005,        # เพิ่มจาก 0.0003 เพื่อตอบสนองเร็วขึ้นกับข้อมูลใหม่
+        'units_layer1': 192,            # ลดจาก 224 เพื่อให้ไม่จดจำระยะยาวเกินไป แต่ยังคงรักษาความสามารถ
+        'units_layer2': 96,             # ลดจาก 112 เพื่อให้มีความคล่องตัวมากขึ้น
+        'dropout1': 0.15,               # ลดจาก 0.2 เพื่อให้ข้อมูลระยะสั้นถูกเก็บไว้มากขึ้น
+        'dropout2': 0.15,               # ลดจาก 0.2 เช่นกัน
+        'recurrent_dropout': 0.03,      # ลดจาก 0.05 เพื่อให้การส่งต่อข้อมูลระยะสั้นมีประสิทธิภาพ
+        'l1_reg': 0.00007,              # เพิ่มจาก 0.00005 เพื่อกระตุ้นให้ feature selection เข้มงวดขึ้น
+        'l2_reg': 0.0002,               # เพิ่มจาก 0.0001 เพื่อควบคุม overfitting
+        'attention_units': 48,          # ลดจาก 64 เพราะไม่ต้องการ attention ซับซ้อนสำหรับระยะสั้น
+        'use_bidirectional': True,      # คงเดิม ยังมีประโยชน์สำหรับการจับแพทเทิร์น
+        'use_layer_norm': True,         # คงเดิม เพราะยังช่วยเพิ่มเสถียรภาพ
+        'use_attention': True           # คงเดิม แต่ลดจำนวน units แล้ว
     }
     
     # ปรับ hyperparameters สำหรับ XGBoost
     XGB_PARAMS = {
-        'n_estimators': 500,
-        'max_depth': 5,
-        'learning_rate': 0.003,
-        'gamma': 0.05,
-        'subsample': 0.8,
-        'colsample_bytree': 0.8,
-        'min_child_weight': 5,
-        'reg_alpha': 0.2,
-        'reg_lambda': 1.2,
-        'random_state': 42,
-        'objective': 'reg:squarederror',
-        'tree_method': 'hist',
-        'n_jobs': -1
+        'n_estimators': 800,           # เพิ่มจาก 500 เพื่อให้มีโมเดลย่อยมากขึ้น เพิ่มความแม่นยำ
+        'max_depth': 6,                # เพิ่มจาก 5 เพื่อให้จับความสัมพันธ์ซับซ้อนได้ดีขึ้น
+        'learning_rate': 0.002,        # ลดจาก 0.003 เพื่อให้การเรียนรู้ละเอียดขึ้น
+        'gamma': 0.03,                 # ลดจาก 0.05 เพื่อให้มีการแตกกิ่งมากขึ้น
+        'subsample': 0.85,             # เพิ่มจาก 0.8 เพื่อใช้ข้อมูลมากขึ้นในแต่ละต้นไม้
+        'colsample_bytree': 0.75,      # ลดจาก 0.8 เพื่อลดความสัมพันธ์ระหว่างต้นไม้
+        'min_child_weight': 3,         # ลดจาก 5 เพื่อให้มีการแตกกิ่งได้ง่ายขึ้น
+        'reg_alpha': 0.1,              # ลดจาก 0.2 เพื่อลดการควบคุม L1 regularization
+        'reg_lambda': 0.8,             # ลดจาก 1.2 เพื่อลดการควบคุม L2 regularization
+        'random_state': 42,            # คงเดิม เพื่อความสม่ำเสมอในการทดลอง
+        'objective': 'reg:squarederror', # คงเดิม เหมาะสำหรับการทำนายราคา
+        'tree_method': 'hist',         # คงเดิม มีประสิทธิภาพดี
+        'n_jobs': -1                   # คงเดิม ใช้ CPU ทั้งหมด
     }
 
     # ปรับ hyperparameters สำหรับ TFT
     TFT_PARAMS = {
-        'learning_rate': 0.0003,
-        'attention_heads': 8,
-        'dropout': 0.15,
-        'hidden_units': 128,
-        'hidden_continuous_size': 48
+        'learning_rate': 0.0002,          # ลดจาก 0.0003 เพื่อการเรียนรู้ที่ละเอียดขึ้น
+        'attention_heads': 12,            # เพิ่มจาก 8 เพื่อให้จับความสัมพันธ์หลายมิติได้ดีขึ้น
+        'dropout': 0.1,                   # ลดจาก 0.15 เพื่อรักษาข้อมูลมากขึ้น
+        'hidden_units': 160,              # เพิ่มจาก 128 เพื่อความจุมากขึ้น
+        'hidden_continuous_size': 64      # เพิ่มจาก 48 เพื่อให้ตัวแทนข้อมูลละเอียดขึ้น
     }
     
     # Feature Engineering parameters
